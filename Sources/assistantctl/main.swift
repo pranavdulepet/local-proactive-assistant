@@ -192,6 +192,77 @@ struct AssistantCLI {
                 print("  \(coverage.source.rawValue): \(coverage.status.rawValue)")
             }
 
+        case "index-commitments":
+            let rawDays = takeOption("--days", from: &arguments) ?? "30"
+            guard let days = Int(rawDays), (1...365).contains(days) else {
+                throw CLIError("index-commitments requires --days between 1 and 365")
+            }
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let summary = try await CommitmentService(store: store).extractRecent(days: days)
+            let formatter = ISO8601DateFormatter()
+            print(
+                "Scanned \(summary.scanned) owner-authored messages since "
+                    + "\(formatter.string(from: summary.since)); "
+                    + "matched \(summary.extracted); inserted \(summary.inserted)."
+            )
+
+        case "forgetting":
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let commitments = try await store.openCommitments(limit: 50)
+            let formatter = ISO8601DateFormatter()
+            if commitments.isEmpty {
+                print("No open commitments matched the deterministic rule.")
+            } else {
+                print("Open commitments")
+                for commitment in commitments {
+                    let timing = commitment.dueAt < Date() ? "overdue" : "upcoming"
+                    print("  [\(commitment.id)] \(timing) \(formatter.string(from: commitment.dueAt))")
+                    print("    \(commitment.summary)")
+                }
+            }
+            print(
+                "\nRule coverage: owner-authored direct messages containing "
+                    + "I’ll/I will plus today, tonight, tomorrow, or this morning/afternoon/evening."
+            )
+            print("Completion is explicit; use complete-commitment after verifying an item is done.")
+            if let coverage = try await store.sourceCoverage(for: .messages) {
+                print(
+                    "Messages coverage: \(coverage.status.rawValue), synced through "
+                        + "\(formatter.string(from: coverage.lastSuccessfulSync))."
+                )
+            }
+
+        case "why":
+            guard let id = takeOption("--commitment", from: &arguments) else {
+                throw CLIError("why requires --commitment <id>")
+            }
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            guard let evidence = try await store.commitmentEvidence(id: id) else {
+                throw CLIError("commitment not found: \(id)")
+            }
+            let formatter = ISO8601DateFormatter()
+            print("Commitment [\(evidence.commitment.id)]")
+            print("  status: \(evidence.commitment.status.rawValue)")
+            print("  due: \(formatter.string(from: evidence.commitment.dueAt))")
+            print("  matched cue: \(evidence.commitment.dueText)")
+            print("  extractor: \(evidence.commitment.extractorID)")
+            print("\nSource evidence")
+            if let timestamp = evidence.observation.sourceTimestamp {
+                print("  sent: \(formatter.string(from: timestamp))")
+            }
+            print("  text: \(evidence.observation.text)")
+            print("  locator: \(evidence.observation.locator)")
+
+        case "complete-commitment":
+            guard let id = takeOption("--commitment", from: &arguments) else {
+                throw CLIError("complete-commitment requires --commitment <id>")
+            }
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            guard try await store.completeCommitment(id: id) else {
+                throw CLIError("active commitment not found: \(id)")
+            }
+            print("Completed commitment \(id).")
+
         default:
             throw CLIError("unknown command: \(command)")
         }
@@ -235,6 +306,10 @@ struct AssistantCLI {
           assistantctl index-contacts
           assistantctl source-status
           assistantctl meeting-context --person <exact name, nickname, phone, or email>
+          assistantctl index-commitments [--days <1...365>]
+          assistantctl forgetting
+          assistantctl why --commitment <id>
+          assistantctl complete-commitment --commitment <id>
         """)
     }
 }
