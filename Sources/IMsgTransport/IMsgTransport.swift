@@ -84,6 +84,7 @@ public struct IMsgTransport: MessageTransport, Sendable {
                                 throw TransportFailure("imsg returned an invalid watch subscription response.")
                             }
                             subscriptionID = subscription
+                            transportDebugLog("watch subscription \(subscription) confirmed")
                             continue
                         }
 
