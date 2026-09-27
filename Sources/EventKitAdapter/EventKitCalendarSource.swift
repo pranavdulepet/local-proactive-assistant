@@ -62,7 +62,8 @@ public actor EventKitCalendarSource: CalendarEventSource {
     }
 
     private static func participantIdentifier(_ participant: EKParticipant) -> String? {
-        participant.url?.absoluteString ?? participant.name
+        let address = participant.url.absoluteString
+        return address.isEmpty ? participant.name : address
     }
 
     private static func status(_ status: EKEventStatus) -> CalendarEventStatus {
