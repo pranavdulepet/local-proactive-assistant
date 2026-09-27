@@ -18,13 +18,16 @@ Milestone 1 establishes one local evidence path for Messages, Calendar, and Cont
 - read-only EventKit ingestion for events from 90 days ago through 365 days ahead;
 - Calendar titles, times, calendar names, locations, organizers, attendee identifiers,
   recurrence descriptions, status, and notes normalized as structured-source observations;
-- stable per-occurrence IDs and deterministic recurrence serialization across refreshes.
+- stable per-occurrence IDs and deterministic recurrence serialization across refreshes;
+- read-only unified Contacts snapshots with normalized names, phone numbers, emails,
+  organizations, and roles;
+- deletion tombstones for full-access Contacts snapshots, without treating hidden contacts
+  as deleted when access is partial.
 
 An observation records source text and provenance. It does not represent a trusted fact, commitment, preference, or assistant policy. Those require deterministic routing or a later typed assertion step.
 
 ## Deliberately deferred
 
-- Contacts adapter;
 - Calendar deletion reconciliation and coverage outside the bounded scan window;
 - commitment extraction;
 - materialized commitment and meeting views;
@@ -34,7 +37,7 @@ An observation records source text and provenance. It does not represent a trust
 
 ## Next slice
 
-Add the read-only Contacts adapter, then expose source coverage and a deterministic “What am I forgetting?” query over the local observation store.
+Expose source coverage and a deterministic “What am I forgetting?” query over the local observation store.
 
 Run a Messages catch-up manually with:
 
@@ -53,3 +56,13 @@ swift run assistantctl index-calendar
 The first run asks macOS for Calendar full access. Calendar notes are indexed as untrusted
 source data, never as instructions. A refresh is idempotent for unchanged events and commits
 the refreshed observations and scan cursor atomically. Deleted events are not tombstoned yet.
+
+Refresh Contacts manually with:
+
+```bash
+swift run assistantctl index-contacts
+```
+
+The first run asks macOS for Contacts access. Later full-access snapshots tombstone contacts
+that disappeared from the address book. Partial access is reported explicitly and never uses
+absence as deletion evidence.

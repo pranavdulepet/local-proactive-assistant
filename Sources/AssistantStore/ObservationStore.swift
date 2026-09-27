@@ -139,6 +139,31 @@ public actor ObservationStore {
         }
     }
 
+    public func currentExternalIDs(source: ObservationSource) throws -> Set<String> {
+        let statement = try prepare(
+            """
+            SELECT o.external_id
+            FROM observation_heads h
+            JOIN observations o ON o.id = h.observation_id
+            WHERE h.source = ? AND o.tombstone = 0
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+
+        var identifiers: Set<String> = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                identifiers.insert(try text(at: 0, from: statement))
+            case SQLITE_DONE:
+                return identifiers
+            default:
+                throw failure("Could not read current observation identifiers")
+            }
+        }
+    }
+
     public func search(
         _ query: String,
         sources: Set<ObservationSource> = Set(ObservationSource.allCases),

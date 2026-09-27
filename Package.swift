@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "AssistantStore", targets: ["AssistantStore"]),
+        .library(name: "ContactsAdapter", targets: ["ContactsAdapter"]),
         .library(name: "EventKitAdapter", targets: ["EventKitAdapter"]),
         .library(name: "IMsgTransport", targets: ["IMsgTransport"]),
         .executable(name: "assistantctl", targets: ["assistantctl"]),
@@ -27,11 +28,16 @@ let package = Package(
             name: "EventKitAdapter",
             dependencies: ["AssistantCore"]
         ),
+        .target(
+            name: "ContactsAdapter",
+            dependencies: ["AssistantCore"]
+        ),
         .executableTarget(
             name: "assistantctl",
             dependencies: [
                 "AssistantCore",
                 "AssistantStore",
+                "ContactsAdapter",
                 "EventKitAdapter",
                 "IMsgTransport",
             ],
@@ -60,6 +66,10 @@ let package = Package(
         .testTarget(
             name: "EventKitAdapterTests",
             dependencies: ["EventKitAdapter"]
+        ),
+        .testTarget(
+            name: "ContactsAdapterTests",
+            dependencies: ["ContactsAdapter"]
         ),
     ]
 )
