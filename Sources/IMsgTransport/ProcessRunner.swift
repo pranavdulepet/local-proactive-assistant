@@ -39,9 +39,16 @@ enum ProcessRunner {
                 try process.run()
             }
 
+            let outputTask = Task.detached {
+                stdout.fileHandleForReading.readDataToEndOfFile()
+            }
+            let errorTask = Task.detached {
+                stderr.fileHandleForReading.readDataToEndOfFile()
+            }
+
             process.waitUntilExit()
-            let output = stdout.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = stderr.fileHandleForReading.readDataToEndOfFile()
+            let output = await outputTask.value
+            let errorOutput = await errorTask.value
 
             guard process.terminationStatus == 0 else {
                 let detail = String(data: errorOutput, encoding: .utf8)?
