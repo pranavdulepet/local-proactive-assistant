@@ -77,44 +77,6 @@ final class StreamingProcess: @unchecked Sendable {
             let stdin = initialStandardInput.map { _ in Pipe() }
             process.standardInput = stdin
 
-            stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                guard let self else { return }
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-
-                self.lock.withLock {
-                    self.buffer.append(chunk)
-                    while let newline = self.buffer.firstIndex(of: 0x0A) {
-                        let line = self.buffer[..<newline]
-                        self.buffer.removeSubrange(...newline)
-                        if !line.isEmpty {
-                            continuation.yield(Data(line))
-                        }
-                    }
-                }
-            }
-
-            process.terminationHandler = { [weak self] process in
-                guard let self else { return }
-                self.stdout.fileHandleForReading.readabilityHandler = nil
-
-                if process.terminationStatus == 0 || process.terminationReason == .uncaughtSignal {
-                    continuation.finish()
-                    return
-                }
-
-                let errorData = self.stderr.fileHandleForReading.readDataToEndOfFile()
-                let detail = String(data: errorData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                continuation.finish(
-                    throwing: TransportFailure(
-                        detail?.isEmpty == false
-                            ? detail!
-                            : "imsg watch exited with status \(process.terminationStatus)"
-                    )
-                )
-            }
-
             do {
                 try process.run()
                 if let initialStandardInput, let stdin {
@@ -122,9 +84,54 @@ final class StreamingProcess: @unchecked Sendable {
                 }
             } catch {
                 continuation.finish(throwing: error)
+                return
+            }
+
+            let reader = Task.detached { [weak self] in
+                guard let self else { return }
+
+                do {
+                    while !Task.isCancelled {
+                        let chunk = try self.stdout.fileHandleForReading.read(upToCount: 4_096)
+                            ?? Data()
+                        guard !chunk.isEmpty else { break }
+
+                        self.lock.withLock {
+                            self.buffer.append(chunk)
+                            while let newline = self.buffer.firstIndex(of: 0x0A) {
+                                let line = self.buffer[..<newline]
+                                self.buffer.removeSubrange(...newline)
+                                if !line.isEmpty {
+                                    continuation.yield(Data(line))
+                                }
+                            }
+                        }
+                    }
+
+                    self.process.waitUntilExit()
+                    guard self.process.terminationStatus != 0,
+                          self.process.terminationReason != .uncaughtSignal else {
+                        continuation.finish()
+                        return
+                    }
+
+                    let errorData = self.stderr.fileHandleForReading.readDataToEndOfFile()
+                    let detail = String(data: errorData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.finish(
+                        throwing: TransportFailure(
+                            detail?.isEmpty == false
+                                ? detail!
+                                : "imsg rpc exited with status \(self.process.terminationStatus)"
+                        )
+                    )
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
 
             continuation.onTermination = { [weak self] _ in
+                reader.cancel()
                 try? stdin?.fileHandleForWriting.close()
                 guard let self, self.process.isRunning else { return }
                 self.process.terminate()
