@@ -39,20 +39,73 @@ public struct IMsgTransport: MessageTransport, Sendable {
         chatID: TransportChatID,
         after cursor: TransportCursor?
     ) -> AsyncThrowingStream<InboundTransportMessage, Error> {
-        var arguments = ["watch", "--chat-id", String(chatID.rawValue), "--json"]
+        let requestID = UUID().uuidString
+        var params: [String: Any] = ["chat_id": chatID.rawValue]
         if let cursor {
-            arguments += ["--since-rowid", String(cursor.rawValue)]
+            params["since_rowid"] = cursor.rawValue
+        }
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": requestID,
+            "method": "watch.subscribe",
+            "params": params,
+        ]
+
+        let input: Data
+        do {
+            var encoded = try JSONSerialization.data(withJSONObject: request)
+            encoded.append(0x0A)
+            input = encoded
+        } catch {
+            return AsyncThrowingStream { $0.finish(throwing: error) }
         }
 
         let process = StreamingProcess()
-        let lines = process.lines(executable: executable, arguments: arguments)
+        let lines = process.lines(
+            executable: executable,
+            arguments: ["rpc"],
+            initialStandardInput: input
+        )
 
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    var subscriptionID: Int?
+
                     for try await line in lines {
-                        let message = try JSONDecoder().decode(IMsgMessage.self, from: line)
-                        continuation.yield(try message.transportMessage)
+                        let envelope = try JSONDecoder().decode(IMsgRPCEnvelope.self, from: line)
+
+                        if envelope.id == requestID {
+                            if let error = envelope.error {
+                                throw TransportFailure(error.message)
+                            }
+                            guard let subscription = envelope.result?.subscription else {
+                                throw TransportFailure("imsg returned an invalid watch subscription response.")
+                            }
+                            subscriptionID = subscription
+                            continue
+                        }
+
+                        switch envelope.method {
+                        case "message":
+                            guard let subscriptionID else {
+                                throw TransportFailure("imsg emitted a message before confirming the watch subscription.")
+                            }
+                            guard envelope.params?.subscription == subscriptionID,
+                                  let message = envelope.params?.message else {
+                                continue
+                            }
+                            continuation.yield(try message.transportMessage)
+
+                        case "watch.overflow":
+                            let cursor = envelope.params?.resumeAfterRowID
+                                .map { " Resume after row \($0)." } ?? ""
+                            throw TransportFailure("imsg watch buffer overflowed.\(cursor)")
+
+                        default:
+                            continue
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -127,6 +180,33 @@ public struct IMsgTransport: MessageTransport, Sendable {
         }
         return result
     }
+}
+
+private struct IMsgRPCEnvelope: Decodable {
+    let id: String?
+    let method: String?
+    let result: IMsgRPCSubscriptionResult?
+    let params: IMsgRPCWatchParams?
+    let error: IMsgRPCError?
+}
+
+private struct IMsgRPCSubscriptionResult: Decodable {
+    let subscription: Int
+}
+
+private struct IMsgRPCWatchParams: Decodable {
+    let subscription: Int?
+    let message: IMsgMessage?
+    let resumeAfterRowID: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case subscription, message
+        case resumeAfterRowID = "resume_after_rowid"
+    }
+}
+
+private struct IMsgRPCError: Decodable {
+    let message: String
 }
 
 private struct IMsgChat: Decodable {
