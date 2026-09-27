@@ -4,7 +4,7 @@ A local-first macOS assistant that tracks loose ends and eventually sends a smal
 
 This repository is intentionally starting with the fragile part: a reliable self-chat transport loop. There is no memory, RAG, model runtime, phone app, or autonomous action layer yet.
 
-## Current milestone: P0 transport
+## Current milestone: P0 reliability validation
 
 The first slice:
 
@@ -19,8 +19,9 @@ iPhone self-chat
 Implemented now:
 
 - a small `MessageTransport` boundary;
-- an `imsg` adapter for chat listing, watching, health checks, and sending;
-- exact-chat filtering and durable row cursors;
+- an `imsg` adapter for chat listing, JSON-RPC watching, health checks, and sending;
+- exact-chat filtering, durable per-chat cursors, and automatic resume;
+- bounded reconnect backoff with visible degraded-state output;
 - outbound GUID/content ledger for self-echo suppression;
 - a deterministic echo service;
 - focused unit tests;
@@ -54,6 +55,8 @@ swift run assistantctl echo --chat-id <SELF_CHAT_ID>
 
 Only choose a private, one-to-one iMessage self-chat. The echo process never chooses a recipient; it can send only to the chat ID supplied at startup.
 
+The CLI stores its last handled row per chat under `~/Library/Application Support/LocalProactiveAssistant/`. A restart resumes from the newer of that checkpoint and an optional `--after <ROW_ID>` value; it never rewinds a saved cursor.
+
 For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md).
 
 ## Design rules
@@ -67,11 +70,11 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Run P0 on a physical Mac/iPhone and record reliability failures.
-2. Tighten the `imsg` adapter from those observations.
-3. Add a second `platform-imessage` adapter only if the comparison is useful.
-4. Build the thin Messages + Calendar + Contacts vertical slice.
-5. Add the evidence/assertion ledger before any broad personal-memory feature.
+1. Finish the P0 physical-device matrix and record reliability failures.
+2. Fix any failures that violate the transport invariants.
+3. Build the thin Messages + Calendar + Contacts vertical slice.
+4. Add the evidence/assertion ledger before any broad personal-memory feature.
+5. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
 
 ## License
 

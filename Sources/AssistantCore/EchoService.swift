@@ -19,24 +19,33 @@ public struct EchoEvent: Equatable, Sendable {
 public struct EchoService: Sendable {
     private let transport: any MessageTransport
     private let ledger: OutboundLedger
+    private let cursorStore: CursorStore
     private let reply: @Sendable (String) -> String
+    private let reconnectDelay: @Sendable (Int) -> TimeInterval
+    private let onReconnect: @Sendable (Int, TimeInterval, String) -> Void
 
     public init(
         transport: any MessageTransport,
         ledger: OutboundLedger,
-        reply: @escaping @Sendable (String) -> String = { "echo: \($0)" }
+        cursorStore: CursorStore = CursorStore(),
+        reply: @escaping @Sendable (String) -> String = { "echo: \($0)" },
+        reconnectDelay: @escaping @Sendable (Int) -> TimeInterval = { attempt in
+            min(pow(2, Double(attempt - 1)), 30)
+        },
+        onReconnect: @escaping @Sendable (Int, TimeInterval, String) -> Void = { _, _, _ in }
     ) {
         self.transport = transport
         self.ledger = ledger
+        self.cursorStore = cursorStore
         self.reply = reply
+        self.reconnectDelay = reconnectDelay
+        self.onReconnect = onReconnect
     }
 
     public func events(
         chatID: TransportChatID,
         after cursor: TransportCursor? = nil
     ) -> AsyncThrowingStream<EchoEvent, Error> {
-        let inbound = transport.subscribe(chatID: chatID, after: cursor)
-
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -44,45 +53,74 @@ public struct EchoService: Sendable {
                         controlChatID: chatID,
                         ledger: ledger
                     )
-                    var lastCursor = cursor
+                    let storedCursor = await cursorStore.cursor(for: chatID)
+                    var lastCursor = [cursor, storedCursor].compactMap { $0 }.max()
+                    var reconnectAttempt = 0
 
-                    for try await message in inbound {
-                        let decision = try await filter.evaluate(message, after: lastCursor)
-                        if let previous = lastCursor {
-                            lastCursor = max(previous, message.cursor)
-                        } else {
-                            lastCursor = message.cursor
-                        }
-                        guard decision == .accept else {
-                            continuation.yield(
-                                EchoEvent(inbound: message, decision: decision, receipt: nil)
-                            )
-                            continue
-                        }
-
-                        let outbound = OutboundTransportMessage(text: reply(message.text))
-                        try await ledger.begin(
-                            requestID: outbound.requestID,
-                            chatID: chatID,
-                            text: outbound.text
-                        )
-
+                    while !Task.isCancelled {
+                        let inbound = transport.subscribe(chatID: chatID, after: lastCursor)
                         do {
-                            let receipt = try await transport.send(outbound, to: chatID)
-                            try await ledger.confirm(
-                                requestID: outbound.requestID,
-                                messageGUID: receipt.messageGUID
-                            )
-                            continuation.yield(
-                                EchoEvent(
-                                    inbound: message,
-                                    decision: .accept,
-                                    receipt: receipt
+                            for try await message in inbound {
+                                reconnectAttempt = 0
+                                let decision = try await filter.evaluate(
+                                    message,
+                                    after: lastCursor
                                 )
-                            )
+                                guard decision == .accept else {
+                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
+                                    try await cursorStore.advance(
+                                        chatID: chatID,
+                                        to: message.cursor
+                                    )
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: decision,
+                                            receipt: nil
+                                        )
+                                    )
+                                    continue
+                                }
+
+                                let outbound = OutboundTransportMessage(text: reply(message.text))
+                                try await ledger.begin(
+                                    requestID: outbound.requestID,
+                                    chatID: chatID,
+                                    text: outbound.text
+                                )
+
+                                do {
+                                    let receipt = try await transport.send(outbound, to: chatID)
+                                    try await ledger.confirm(
+                                        requestID: outbound.requestID,
+                                        messageGUID: receipt.messageGUID
+                                    )
+                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
+                                    try await cursorStore.advance(
+                                        chatID: chatID,
+                                        to: message.cursor
+                                    )
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: .accept,
+                                            receipt: receipt
+                                        )
+                                    )
+                                } catch let failure as TransportFailure where failure.retrySafe {
+                                    try await ledger.cancel(requestID: outbound.requestID)
+                                    throw failure
+                                }
+                            }
+
+                            break
                         } catch let failure as TransportFailure where failure.retrySafe {
-                            try await ledger.cancel(requestID: outbound.requestID)
-                            throw failure
+                            reconnectAttempt += 1
+                            let delay = reconnectDelay(reconnectAttempt)
+                            onReconnect(reconnectAttempt, delay, failure.message)
+                            try await Task.sleep(
+                                for: .milliseconds(Int64(delay * 1_000))
+                            )
                         }
                     }
 
