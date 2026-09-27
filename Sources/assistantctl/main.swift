@@ -45,14 +45,33 @@ struct AssistantCLI {
                 throw CLIError("echo requires --chat-id <positive integer>")
             }
             let after = takeOption("--after", from: &arguments).flatMap(Int64.init)
-            let ledgerURL = try defaultLedgerURL()
-            let ledger = try OutboundLedger(fileURL: ledgerURL)
-            let service = EchoService(transport: transport, ledger: ledger)
+            let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
+            let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
+            let service = EchoService(
+                transport: transport,
+                ledger: ledger,
+                cursorStore: cursorStore,
+                onReconnect: { attempt, delay, detail in
+                    print(
+                        "watch interrupted: \(detail) "
+                            + "reconnecting in \(Int(delay))s (attempt \(attempt))"
+                    )
+                }
+            )
+
+            let chat = TransportChatID(rawValue: chatID)
+            let storedCursor = await cursorStore.cursor(for: chat)
+            let resumeCursor = [after.map(TransportCursor.init(rawValue:)), storedCursor]
+                .compactMap { $0 }
+                .max()
 
             print("Watching chat \(chatID). Press Control-C to stop.")
+            if let resumeCursor {
+                print("Resuming after row \(resumeCursor.rawValue).")
+            }
             for try await event in service.events(
-                chatID: TransportChatID(rawValue: chatID),
-                after: after.map { TransportCursor(rawValue: $0) }
+                chatID: chat,
+                after: resumeCursor
             ) {
                 switch event.decision {
                 case .accept:
@@ -77,7 +96,7 @@ struct AssistantCLI {
         return value
     }
 
-    private static func defaultLedgerURL() throws -> URL {
+    private static func stateURL(_ filename: String) throws -> URL {
         let root = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -86,7 +105,7 @@ struct AssistantCLI {
         )
         return root
             .appendingPathComponent("LocalProactiveAssistant", isDirectory: true)
-            .appendingPathComponent("outbound-ledger.json")
+            .appendingPathComponent(filename)
     }
 
     private static func printUsage() {

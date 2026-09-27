@@ -24,5 +24,9 @@ let package = Package(
             name: "AssistantCoreTests",
             dependencies: ["AssistantCore"]
         ),
+        .testTarget(
+            name: "IMsgTransportTests",
+            dependencies: ["AssistantCore", "IMsgTransport"]
+        ),
     ]
 )

@@ -110,6 +110,28 @@ struct ControlMessageFilterTests {
         #expect(decision == .reject(.replayed))
     }
 
+    @Test
+    func rejectsMessagesFromAnotherChat() async throws {
+        let ledger = try OutboundLedger()
+        let filter = ControlMessageFilter(controlChatID: chatID, ledger: ledger)
+        let otherChatMessage = InboundTransportMessage(
+            cursor: TransportCursor(rawValue: 11),
+            guid: UUID().uuidString,
+            chatID: TransportChatID(rawValue: 84),
+            text: "hello",
+            isFromMe: true,
+            createdAt: now
+        )
+
+        let decision = try await filter.evaluate(
+            otherChatMessage,
+            after: TransportCursor(rawValue: 10),
+            now: now
+        )
+
+        #expect(decision == .reject(.wrongChat))
+    }
+
     private func message(
         text: String,
         cursor: Int64,

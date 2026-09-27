@@ -140,7 +140,8 @@ final class StreamingProcess: @unchecked Sendable {
                         throwing: TransportFailure(
                             detail?.isEmpty == false
                                 ? detail!
-                                : "imsg rpc exited with status \(self.process.terminationStatus)"
+                                : "imsg rpc exited with status \(self.process.terminationStatus)",
+                            retrySafe: true
                         )
                     )
                 } catch {

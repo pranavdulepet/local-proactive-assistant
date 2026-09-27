@@ -108,7 +108,16 @@ public struct IMsgTransport: MessageTransport, Sendable {
                             continue
                         }
                     }
-                    continuation.finish()
+                    if Task.isCancelled {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(
+                            throwing: TransportFailure(
+                                "imsg RPC watch ended unexpectedly.",
+                                retrySafe: true
+                            )
+                        )
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
