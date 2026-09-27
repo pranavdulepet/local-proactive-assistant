@@ -130,6 +130,7 @@ struct ObservationStoreTests {
             externalID: "event-1",
             versionHash: "v1",
             sourceRevision: 1,
+            observedAt: Date(timeIntervalSince1970: 1_800_000_000),
             trust: .structuredSource,
             text: "Project Atlas review",
             locator: "calendar:event-1"
