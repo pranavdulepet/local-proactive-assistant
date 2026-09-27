@@ -59,7 +59,8 @@ final class StreamingProcess: @unchecked Sendable {
 
     func lines(
         executable: String,
-        arguments: [String]
+        arguments: [String],
+        initialStandardInput: Data? = nil
     ) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             if executable.contains("/") {
@@ -72,6 +73,9 @@ final class StreamingProcess: @unchecked Sendable {
 
             process.standardOutput = stdout
             process.standardError = stderr
+
+            let stdin = initialStandardInput.map { _ in Pipe() }
+            process.standardInput = stdin
 
             stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 guard let self else { return }
@@ -113,11 +117,15 @@ final class StreamingProcess: @unchecked Sendable {
 
             do {
                 try process.run()
+                if let initialStandardInput, let stdin {
+                    try stdin.fileHandleForWriting.write(contentsOf: initialStandardInput)
+                }
             } catch {
                 continuation.finish(throwing: error)
             }
 
             continuation.onTermination = { [weak self] _ in
+                try? stdin?.fileHandleForWriting.close()
                 guard let self, self.process.isRunning else { return }
                 self.process.terminate()
             }
