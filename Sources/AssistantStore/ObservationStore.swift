@@ -10,7 +10,8 @@ public struct ObservationStoreFailure: Error, CustomStringConvertible, Sendable 
 }
 
 public actor ObservationStore {
-    private let database: OpaquePointer
+    private let connection: SQLiteConnection
+    private var database: OpaquePointer { connection.handle }
 
     public init(fileURL: URL? = nil) throws {
         if let fileURL {
@@ -37,8 +38,6 @@ public actor ObservationStore {
             throw ObservationStoreFailure("Could not open observation store: \(detail)")
         }
 
-        self.database = database
-
         do {
             try Self.execute(Self.schema, on: database)
             if let fileURL {
@@ -51,10 +50,8 @@ public actor ObservationStore {
             sqlite3_close(database)
             throw error
         }
-    }
 
-    deinit {
-        sqlite3_close(database)
+        connection = SQLiteConnection(handle: database)
     }
 
     @discardableResult
@@ -382,4 +379,16 @@ public actor ObservationStore {
     CREATE INDEX IF NOT EXISTS observations_source_time
     ON observations(source, source_timestamp);
     """
+}
+
+private final class SQLiteConnection: @unchecked Sendable {
+    let handle: OpaquePointer
+
+    init(handle: OpaquePointer) {
+        self.handle = handle
+    }
+
+    deinit {
+        sqlite3_close(handle)
+    }
 }
