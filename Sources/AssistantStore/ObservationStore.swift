@@ -219,6 +219,145 @@ public actor ObservationStore {
         }
     }
 
+    public func currentObservations(
+        source: ObservationSource,
+        trust: ObservationTrust,
+        from startDate: Date? = nil,
+        to endDate: Date? = nil,
+        limit: Int = 100
+    ) throws -> [Observation] {
+        guard limit > 0 else { return [] }
+        let statement = try prepare(
+            """
+            SELECT o.id, o.source, o.external_id, o.version_hash, o.source_revision,
+                   o.observed_at, o.source_timestamp, o.trust, o.text, o.locator,
+                   o.tombstone
+            FROM observation_heads h
+            JOIN observations o ON o.id = h.observation_id
+            WHERE o.source = ?
+              AND o.trust = ?
+              AND o.tombstone = 0
+              AND (? IS NULL OR o.source_timestamp >= ?)
+              AND (? IS NULL OR o.source_timestamp <= ?)
+            ORDER BY o.source_timestamp, o.external_id
+            LIMIT ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        try bind(trust.rawValue, at: 2, to: statement)
+        try bind(startDate?.timeIntervalSince1970, at: 3, to: statement)
+        try bind(startDate?.timeIntervalSince1970, at: 4, to: statement)
+        try bind(endDate?.timeIntervalSince1970, at: 5, to: statement)
+        try bind(endDate?.timeIntervalSince1970, at: 6, to: statement)
+        try bind(Int64(limit), at: 7, to: statement)
+
+        var observations: [Observation] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                observations.append(try decodeObservation(statement))
+            case SQLITE_DONE:
+                return observations
+            default:
+                throw failure("Could not read observations by trust")
+            }
+        }
+    }
+
+    @discardableResult
+    public func recordCommitments(_ commitments: [CommitmentAssertion]) throws -> Int {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            var inserted = 0
+            for commitment in commitments {
+                if try insertCommitment(commitment) {
+                    inserted += 1
+                }
+                try insertCommitmentEvidence(commitment)
+            }
+            try execute("COMMIT")
+            return inserted
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    public func openCommitments(limit: Int = 20) throws -> [CommitmentAssertion] {
+        guard limit > 0 else { return [] }
+        let statement = try prepare(
+            """
+            SELECT id, predicate, status, summary, due_at, due_text, confidence,
+                   evidence_observation_id, extractor_id, schema_version, created_at
+            FROM open_commitments
+            ORDER BY due_at, created_at
+            LIMIT ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(Int64(limit), at: 1, to: statement)
+        var commitments: [CommitmentAssertion] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                commitments.append(try decodeCommitment(statement))
+            case SQLITE_DONE:
+                return commitments
+            default:
+                throw failure("Could not read open commitments")
+            }
+        }
+    }
+
+    public func commitmentEvidence(id: String) throws -> CommitmentEvidence? {
+        let statement = try prepare(
+            """
+            SELECT a.id, a.predicate, a.status, a.summary, a.due_at, a.due_text,
+                   a.confidence, a.evidence_observation_id, a.extractor_id,
+                   a.schema_version, a.created_at,
+                   o.id, o.source, o.external_id, o.version_hash, o.source_revision,
+                   o.observed_at, o.source_timestamp, o.trust, o.text, o.locator,
+                   o.tombstone
+            FROM derived_assertions a
+            JOIN assertion_evidence e ON e.assertion_id = a.id
+            JOIN observations o ON o.id = e.observation_id
+            WHERE a.id = ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(id, at: 1, to: statement)
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return CommitmentEvidence(
+                commitment: try decodeCommitment(statement),
+                observation: try decodeObservation(statement, offset: 11)
+            )
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw failure("Could not read commitment evidence")
+        }
+    }
+
+    @discardableResult
+    public func completeCommitment(id: String) throws -> Bool {
+        let statement = try prepare(
+            """
+            UPDATE derived_assertions
+            SET status = ?
+            WHERE id = ? AND predicate = ? AND status = ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(AssertionStatus.completed.rawValue, at: 1, to: statement)
+        try bind(id, at: 2, to: statement)
+        try bind(AssertionPredicate.commitmentCreated.rawValue, at: 3, to: statement)
+        try bind(AssertionStatus.active.rawValue, at: 4, to: statement)
+        try step(statement, operation: "complete commitment")
+        return sqlite3_changes(database) == 1
+    }
+
     @discardableResult
     public func refreshCoverage(
         for source: ObservationSource,
@@ -388,6 +527,44 @@ public actor ObservationStore {
         return inserted
     }
 
+    private func insertCommitment(_ commitment: CommitmentAssertion) throws -> Bool {
+        let statement = try prepare(
+            """
+            INSERT OR IGNORE INTO derived_assertions (
+                id, predicate, status, summary, due_at, due_text, confidence,
+                evidence_observation_id, extractor_id, schema_version, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(commitment.id, at: 1, to: statement)
+        try bind(commitment.predicate.rawValue, at: 2, to: statement)
+        try bind(commitment.status.rawValue, at: 3, to: statement)
+        try bind(commitment.summary, at: 4, to: statement)
+        try bind(commitment.dueAt.timeIntervalSince1970, at: 5, to: statement)
+        try bind(commitment.dueText, at: 6, to: statement)
+        try bind(commitment.confidence, at: 7, to: statement)
+        try bind(commitment.evidenceObservationID.uuidString, at: 8, to: statement)
+        try bind(commitment.extractorID, at: 9, to: statement)
+        try bind(commitment.schemaVersion, at: 10, to: statement)
+        try bind(commitment.createdAt.timeIntervalSince1970, at: 11, to: statement)
+        try step(statement, operation: "insert commitment")
+        return sqlite3_changes(database) == 1
+    }
+
+    private func insertCommitmentEvidence(_ commitment: CommitmentAssertion) throws {
+        let statement = try prepare(
+            """
+            INSERT OR IGNORE INTO assertion_evidence (assertion_id, observation_id)
+            VALUES (?, ?)
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(commitment.id, at: 1, to: statement)
+        try bind(commitment.evidenceObservationID.uuidString, at: 2, to: statement)
+        try step(statement, operation: "link commitment evidence")
+    }
+
     private func saveCursor(_ cursor: String, for source: ObservationSource) throws {
         let statement = try prepare(
             """
@@ -502,29 +679,53 @@ public actor ObservationStore {
         try step(statement, operation: "update observation head")
     }
 
-    private func decodeObservation(_ statement: OpaquePointer) throws -> Observation {
-        guard let id = UUID(uuidString: try text(at: 0, from: statement)),
-              let source = ObservationSource(rawValue: try text(at: 1, from: statement)),
-              let trust = ObservationTrust(rawValue: try text(at: 7, from: statement)) else {
+    private func decodeObservation(
+        _ statement: OpaquePointer,
+        offset: Int32 = 0
+    ) throws -> Observation {
+        guard let id = UUID(uuidString: try text(at: offset, from: statement)),
+              let source = ObservationSource(rawValue: try text(at: offset + 1, from: statement)),
+              let trust = ObservationTrust(rawValue: try text(at: offset + 7, from: statement)) else {
             throw ObservationStoreFailure("Stored observation contains an unknown value")
         }
 
-        let sourceTimestamp = sqlite3_column_type(statement, 6) == SQLITE_NULL
+        let sourceTimestamp = sqlite3_column_type(statement, offset + 6) == SQLITE_NULL
             ? nil
-            : Date(timeIntervalSince1970: sqlite3_column_double(statement, 6))
+            : Date(timeIntervalSince1970: sqlite3_column_double(statement, offset + 6))
         return Observation(
             id: id,
             source: source,
-            externalID: try text(at: 2, from: statement),
-            versionHash: try text(at: 3, from: statement),
-            sourceRevision: sqlite3_column_int64(statement, 4),
-            observedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
+            externalID: try text(at: offset + 2, from: statement),
+            versionHash: try text(at: offset + 3, from: statement),
+            sourceRevision: sqlite3_column_int64(statement, offset + 4),
+            observedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, offset + 5)),
             sourceTimestamp: sourceTimestamp,
             trust: trust,
             handles: try handles(for: id.uuidString),
-            text: try text(at: 8, from: statement),
-            locator: try text(at: 9, from: statement),
-            tombstone: sqlite3_column_int(statement, 10) != 0
+            text: try text(at: offset + 8, from: statement),
+            locator: try text(at: offset + 9, from: statement),
+            tombstone: sqlite3_column_int(statement, offset + 10) != 0
+        )
+    }
+
+    private func decodeCommitment(_ statement: OpaquePointer) throws -> CommitmentAssertion {
+        guard let predicate = AssertionPredicate(rawValue: try text(at: 1, from: statement)),
+              let status = AssertionStatus(rawValue: try text(at: 2, from: statement)),
+              let evidenceID = UUID(uuidString: try text(at: 7, from: statement)) else {
+            throw ObservationStoreFailure("Stored commitment contains an unknown value")
+        }
+        return CommitmentAssertion(
+            id: try text(at: 0, from: statement),
+            predicate: predicate,
+            status: status,
+            summary: try text(at: 3, from: statement),
+            dueAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4)),
+            dueText: try text(at: 5, from: statement),
+            confidence: sqlite3_column_double(statement, 6),
+            evidenceObservationID: evidenceID,
+            extractorID: try text(at: 8, from: statement),
+            schemaVersion: try text(at: 9, from: statement),
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 10))
         )
     }
 
@@ -712,6 +913,30 @@ public actor ObservationStore {
         limitations TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS derived_assertions (
+        id TEXT PRIMARY KEY,
+        predicate TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        due_at REAL NOT NULL,
+        due_text TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        evidence_observation_id TEXT NOT NULL REFERENCES observations(id),
+        extractor_id TEXT NOT NULL,
+        schema_version TEXT NOT NULL,
+        created_at REAL NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS assertion_evidence (
+        assertion_id TEXT NOT NULL REFERENCES derived_assertions(id),
+        observation_id TEXT NOT NULL REFERENCES observations(id),
+        PRIMARY KEY (assertion_id, observation_id)
+    );
+
+    CREATE VIEW IF NOT EXISTS open_commitments AS
+    SELECT * FROM derived_assertions
+    WHERE predicate = 'commitmentCreated' AND status = 'active';
+
     CREATE VIRTUAL TABLE IF NOT EXISTS observation_fts USING fts5(
         observation_id UNINDEXED,
         text,
@@ -723,6 +948,9 @@ public actor ObservationStore {
 
     CREATE INDEX IF NOT EXISTS observation_handles_handle
     ON observation_handles(handle);
+
+    CREATE INDEX IF NOT EXISTS derived_assertions_status_due
+    ON derived_assertions(predicate, status, due_at);
     """
 }
 

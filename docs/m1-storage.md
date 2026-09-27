@@ -27,22 +27,23 @@ Milestone 1 establishes one local evidence path for Messages, Calendar, and Cont
 - persisted source coverage with status, time bounds, last successful sync, cursor, and
   limitations;
 - deterministic exact contact resolution and upcoming meeting-context evidence.
+- typed commitment assertions with source-observation evidence links;
+- a materialized open-commitment view and explicit completion state.
 
 An observation records source text and provenance. It does not represent a trusted fact, commitment, preference, or assistant policy. Those require deterministic routing or a later typed assertion step.
 
 ## Deliberately deferred
 
 - Calendar deletion reconciliation and coverage outside the bounded scan window;
-- commitment extraction;
-- commitment extraction and a materialized commitment view;
+- model-based commitment extraction and automatic completion detection;
 - model inference;
 - proactive sending;
 - Mail and embeddings.
 
 ## Next slice
 
-Add the deterministic commitment query for “What am I forgetting?” over the local
-observation store. It remains separate from the meeting-context evidence query.
+Add the owner-control `/why` route and one gated proactive commitment rule. The
+deterministic commitment path remains separate from meeting-context evidence.
 
 Run a Messages catch-up manually with:
 
@@ -88,6 +89,25 @@ swift run assistantctl meeting-context --person "Alex Rivera"
 The command stops on ambiguous names rather than merging people or guessing. It returns the
 next matching Calendar event and up to ten direct messages from the preceding 90 days. It does
 not generate a model-written answer.
+
+Extract the first deliberately narrow commitment schema from recent owner-authored messages:
+
+```bash
+swift run assistantctl index-commitments --days 30
+swift run assistantctl forgetting
+```
+
+The rule matches only `I'll`/`I’ll`/`I will` statements containing `today`, `tonight`,
+`tomorrow`, or `this morning/afternoon/evening`. Questions, negated statements, incoming
+messages, and statements without a supported time cue are excluded. This favors precision
+over recall and does not claim to detect completion automatically.
+
+Every listed item includes a stable ID. Inspect its source evidence or mark it complete with:
+
+```bash
+swift run assistantctl why --commitment <ID>
+swift run assistantctl complete-commitment --commitment <ID>
+```
 
 Existing Messages observations predate handle provenance. After upgrading, clear only the
 Messages source cursor and run the indexer once to append handle-aware versions while keeping

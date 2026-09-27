@@ -241,6 +241,40 @@ struct ObservationStoreTests {
         #expect(try await store.sourceCoverages() == [coverage])
     }
 
+    @Test
+    func persistsCommitmentEvidenceAndCompletionState() async throws {
+        let store = try ObservationStore()
+        let evidence = message(
+            externalID: "message-1",
+            versionHash: "v1",
+            text: "I’ll send the deck tomorrow"
+        )
+        try await store.record(evidence)
+        let commitment = CommitmentAssertion(
+            id: "commitment-1",
+            summary: "I’ll send the deck tomorrow",
+            dueAt: Date(timeIntervalSince1970: 1_800_086_400),
+            dueText: "tomorrow",
+            confidence: 1,
+            evidenceObservationID: evidence.id,
+            extractorID: DeterministicCommitmentExtractor.extractorID,
+            schemaVersion: DeterministicCommitmentExtractor.schemaVersion,
+            createdAt: evidence.sourceTimestamp!
+        )
+
+        #expect(try await store.recordCommitments([commitment]) == 1)
+        #expect(try await store.recordCommitments([commitment]) == 0)
+        #expect(try await store.openCommitments() == [commitment])
+        #expect(
+            try await store.commitmentEvidence(id: commitment.id)
+                == CommitmentEvidence(commitment: commitment, observation: evidence)
+        )
+        #expect(try await store.completeCommitment(id: commitment.id))
+        #expect(try await store.openCommitments().isEmpty)
+        #expect(try await store.commitmentEvidence(id: commitment.id)?.commitment.status == .completed)
+        #expect(try await !store.completeCommitment(id: commitment.id))
+    }
+
     private func message(
         externalID: String,
         versionHash: String,

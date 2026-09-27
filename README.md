@@ -33,6 +33,9 @@ Implemented now:
 - persisted, explicit coverage status for Messages, Calendar, and Contacts;
 - exact phone/email joins across contacts, events, and direct messages;
 - a deterministic meeting-context evidence query with explicit ambiguity errors.
+- typed commitment assertions linked to source evidence;
+- a narrow deterministic extractor for explicit, owner-authored, time-bound commitments;
+- open-commitment, evidence explanation, and explicit completion commands.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -69,6 +72,8 @@ swift run assistantctl index-calendar
 swift run assistantctl index-contacts
 swift run assistantctl source-status
 swift run assistantctl meeting-context --person "<exact contact name>"
+swift run assistantctl index-commitments --days 30
+swift run assistantctl forgetting
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo process never chooses a recipient; it can send only to the chat ID supplied at startup.
@@ -88,9 +93,9 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Validate source coverage and meeting-context evidence on the Mac.
-2. Build the deterministic commitment view for “What am I forgetting?”.
-3. Add the evidence/assertion ledger before any broad personal-memory feature.
+1. Validate meeting-context and commitment evidence on the Mac.
+2. Add `/why` in the owner control chat using the existing evidence path.
+3. Add one gated proactive commitment rule with a one-message-per-day ceiling.
 4. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
 
 ## License
