@@ -2,7 +2,7 @@
 
 A local-first macOS assistant that tracks loose ends and eventually sends a small number of evidence-backed iMessages. Personal-source indexing and model inference stay on user-controlled Apple hardware.
 
-This repository started with the fragile part: a reliable self-chat transport loop. It now has local observation storage and read-only Messages ingestion, but no model runtime, phone app, or autonomous action layer.
+This repository started with the fragile part: a reliable self-chat transport loop. It now has local observation storage plus read-only Messages and Calendar ingestion, but no model runtime, phone app, or autonomous action layer.
 
 ## Current milestone: M1 thin vertical slice
 
@@ -28,6 +28,7 @@ Implemented now:
 - a CLI for Mac device testing.
 - append-only SQLite observations with current heads and FTS5 search;
 - resumable one-to-one Messages history ingestion with durable source cursors.
+- bounded, read-only EventKit ingestion with explicit authorization and scan coverage.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -43,6 +44,7 @@ Milestone 1 starts with a small `AssistantStore` module: append-only, versioned 
 - [`imsg`](https://github.com/openclaw/imsg) installed
 - Full Disk Access for the calling host/terminal
 - Automation permission to control Messages.app
+- Calendar full-access permission for the terminal or host running `assistantctl`
 
 Install `imsg`:
 
@@ -58,11 +60,12 @@ swift run assistantctl doctor
 swift run assistantctl chats
 swift run assistantctl echo --chat-id <SELF_CHAT_ID>
 swift run assistantctl index-messages --control-chat-id <SELF_CHAT_ID>
+swift run assistantctl index-calendar
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo process never chooses a recipient; it can send only to the chat ID supplied at startup.
 
-The CLI stores its last handled row per chat under `~/Library/Application Support/LocalProactiveAssistant/`. A restart resumes from the newer of that checkpoint and an optional `--after <ROW_ID>` value; it never rewinds a saved cursor.
+The CLI stores its state under `~/Library/Application Support/LocalProactiveAssistant/`. A Messages restart resumes from the newer of its checkpoint and an optional `--after <ROW_ID>` value; it never rewinds a saved cursor. Calendar refreshes cover 90 days in the past through 365 days in the future and report that window after each run.
 
 For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md).
 
@@ -77,8 +80,8 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Validate Messages history catch-up and resume on the Mac.
-2. Add read-only Calendar and Contacts adapters.
+1. Validate Calendar authorization and bounded refresh on the Mac.
+2. Add the read-only Contacts adapter.
 3. Build the deterministic commitment and meeting-context views.
 4. Add the evidence/assertion ledger before any broad personal-memory feature.
 5. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
