@@ -142,6 +142,49 @@ struct ObservationStoreTests {
         #expect(hits.map(\.observation) == [calendar])
     }
 
+    @Test
+    func recordsAPageAndCursorAtomically() async throws {
+        let store = try ObservationStore()
+        let valid = message(
+            externalID: "message-1",
+            versionHash: "v1",
+            text: "Remember the passport"
+        )
+        let invalid = Observation(
+            source: .calendar,
+            externalID: "event-1",
+            versionHash: "v1",
+            sourceRevision: 2,
+            trust: .structuredSource,
+            text: "Dinner",
+            locator: "calendar:event-1"
+        )
+
+        do {
+            try await store.record(
+                [valid, invalid],
+                advancing: .messages,
+                cursor: "42"
+            )
+            Issue.record("Mixed-source page should fail")
+        } catch {
+            #expect(try await store.sourceCursor(for: .messages) == nil)
+            #expect(
+                try await store.current(source: .messages, externalID: valid.externalID) == nil
+            )
+        }
+
+        let inserted = try await store.record(
+            [valid],
+            advancing: .messages,
+            cursor: "42"
+        )
+
+        #expect(inserted == 1)
+        #expect(try await store.sourceCursor(for: .messages) == "42")
+        #expect(try await store.current(source: .messages, externalID: valid.externalID) == valid)
+    }
+
     private func message(
         externalID: String,
         versionHash: String,

@@ -16,7 +16,7 @@ let package = Package(
         .target(name: "AssistantCore"),
         .target(
             name: "AssistantStore",
-            dependencies: ["CSQLite"]
+            dependencies: ["AssistantCore", "CSQLite"]
         ),
         .target(
             name: "IMsgTransport",
@@ -24,7 +24,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "assistantctl",
-            dependencies: ["AssistantCore", "IMsgTransport"]
+            dependencies: ["AssistantCore", "AssistantStore", "IMsgTransport"]
         ),
         .testTarget(
             name: "AssistantCoreTests",
@@ -32,7 +32,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AssistantStoreTests",
-            dependencies: ["AssistantStore"]
+            dependencies: ["AssistantCore", "AssistantStore"]
         ),
         .testTarget(
             name: "IMsgTransportTests",

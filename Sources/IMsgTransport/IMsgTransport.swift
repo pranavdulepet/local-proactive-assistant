@@ -1,7 +1,7 @@
 import AssistantCore
 import Foundation
 
-public struct IMsgTransport: MessageTransport, Sendable {
+public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
     private let executable: String
 
     public init(executable: String = "imsg") {
@@ -26,13 +26,41 @@ public struct IMsgTransport: MessageTransport, Sendable {
     public func chats() async throws -> [TransportChat] {
         let data = try await ProcessRunner.run(
             executable: executable,
-            arguments: ["chats", "--limit", "100", "--json"]
+            arguments: ["chats", "--limit", "10000", "--json"]
         )
 
         return try data
             .split(separator: 0x0A)
             .filter { !$0.isEmpty }
             .map { try JSONDecoder().decode(IMsgChat.self, from: Data($0)).transportChat }
+    }
+
+    public func messages(
+        after cursor: TransportCursor,
+        limit: Int = 500
+    ) async throws -> MessageHistoryPage {
+        let result = try await rpc(
+            method: "messages.after",
+            params: [
+                "since_rowid": cursor.rawValue,
+                "limit": limit,
+                "attachments": false,
+                "include_reactions": false,
+            ]
+        )
+        guard let rawMessages = result["messages"] as? [[String: Any]],
+              let nextRowID = (result["next_rowid"] as? NSNumber)?.int64Value,
+              let hasMore = result["has_more"] as? Bool else {
+            throw TransportFailure("imsg returned an invalid history page.")
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: rawMessages)
+        let messages = try JSONDecoder().decode([IMsgMessage].self, from: data)
+        return MessageHistoryPage(
+            messages: try messages.map { try $0.historyMessage },
+            nextCursor: TransportCursor(rawValue: nextRowID),
+            hasMore: hasMore
+        )
     }
 
     public func subscribe(
@@ -254,12 +282,16 @@ private struct IMsgMessage: Decodable {
     let chatID: Int64
     let text: String
     let isFromMe: Bool
+    let isGroup: Bool?
+    let senderName: String?
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
         case id, guid, text
         case chatID = "chat_id"
         case isFromMe = "is_from_me"
+        case isGroup = "is_group"
+        case senderName = "sender_name"
         case createdAt = "created_at"
     }
 
@@ -275,6 +307,24 @@ private struct IMsgMessage: Decodable {
                 chatID: TransportChatID(rawValue: chatID),
                 text: text,
                 isFromMe: isFromMe,
+                createdAt: date
+            )
+        }
+    }
+
+    var historyMessage: HistoricalMessage {
+        get throws {
+            guard let date = Self.date(from: createdAt) else {
+                throw TransportFailure("imsg returned an invalid created_at timestamp: \(createdAt)")
+            }
+            return HistoricalMessage(
+                cursor: TransportCursor(rawValue: id),
+                guid: guid,
+                chatID: TransportChatID(rawValue: chatID),
+                text: text,
+                isFromMe: isFromMe,
+                isGroup: isGroup ?? false,
+                senderName: senderName,
                 createdAt: date
             )
         }

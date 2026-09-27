@@ -4,7 +4,7 @@ import Foundation
 public struct ObservationStoreFailure: Error, CustomStringConvertible, Sendable {
     public let description: String
 
-    init(_ description: String) {
+    public init(_ description: String) {
         self.description = description
     }
 }
@@ -58,27 +58,57 @@ public actor ObservationStore {
     public func record(_ observation: Observation) throws -> Bool {
         try execute("BEGIN IMMEDIATE")
         do {
-            let inserted = try insert(observation)
-            let storedID = try observationID(
-                source: observation.source,
-                externalID: observation.externalID,
-                versionHash: observation.versionHash
-            )
-
-            if inserted && !observation.tombstone {
-                try insertSearchText(id: storedID, text: observation.text)
-            }
-            try updateHead(
-                source: observation.source,
-                externalID: observation.externalID,
-                observationID: storedID,
-                sourceRevision: observation.sourceRevision
-            )
+            let inserted = try recordInsideTransaction(observation)
             try execute("COMMIT")
             return inserted
         } catch {
             try? execute("ROLLBACK")
             throw error
+        }
+    }
+
+    @discardableResult
+    public func record(
+        _ observations: [Observation],
+        advancing source: ObservationSource,
+        cursor: String
+    ) throws -> Int {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            var inserted = 0
+            for observation in observations {
+                guard observation.source == source else {
+                    throw ObservationStoreFailure(
+                        "Cannot advance \(source.rawValue) with a \(observation.source.rawValue) observation"
+                    )
+                }
+                if try recordInsideTransaction(observation) {
+                    inserted += 1
+                }
+            }
+            try saveCursor(cursor, for: source)
+            try execute("COMMIT")
+            return inserted
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    public func sourceCursor(for source: ObservationSource) throws -> String? {
+        let statement = try prepare(
+            "SELECT cursor FROM source_cursors WHERE source = ?"
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return try text(at: 0, from: statement)
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw failure("Could not read source cursor")
         }
     }
 
@@ -159,6 +189,42 @@ public actor ObservationStore {
                 throw failure("Could not search observations")
             }
         }
+    }
+
+    private func recordInsideTransaction(_ observation: Observation) throws -> Bool {
+        let inserted = try insert(observation)
+        let storedID = try observationID(
+            source: observation.source,
+            externalID: observation.externalID,
+            versionHash: observation.versionHash
+        )
+
+        if inserted && !observation.tombstone {
+            try insertSearchText(id: storedID, text: observation.text)
+        }
+        try updateHead(
+            source: observation.source,
+            externalID: observation.externalID,
+            observationID: storedID,
+            sourceRevision: observation.sourceRevision
+        )
+        return inserted
+    }
+
+    private func saveCursor(_ cursor: String, for source: ObservationSource) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO source_cursors (source, cursor, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(source)
+            DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        try bind(cursor, at: 2, to: statement)
+        try bind(Date().timeIntervalSince1970, at: 3, to: statement)
+        try step(statement, operation: "save source cursor")
     }
 
     private func insert(_ observation: Observation) throws -> Bool {
@@ -368,6 +434,12 @@ public actor ObservationStore {
         observation_id TEXT NOT NULL REFERENCES observations(id),
         source_revision INTEGER NOT NULL,
         PRIMARY KEY (source, external_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS source_cursors (
+        source TEXT PRIMARY KEY,
+        cursor TEXT NOT NULL,
+        updated_at REAL NOT NULL
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS observation_fts USING fts5(

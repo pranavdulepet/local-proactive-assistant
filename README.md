@@ -2,7 +2,7 @@
 
 A local-first macOS assistant that tracks loose ends and eventually sends a small number of evidence-backed iMessages. Personal-source indexing and model inference stay on user-controlled Apple hardware.
 
-This repository is intentionally starting with the fragile part: a reliable self-chat transport loop. There is no memory, RAG, model runtime, phone app, or autonomous action layer yet.
+This repository started with the fragile part: a reliable self-chat transport loop. It now has local observation storage and read-only Messages ingestion, but no model runtime, phone app, or autonomous action layer.
 
 ## Current milestone: M1 thin vertical slice
 
@@ -26,6 +26,8 @@ Implemented now:
 - a deterministic echo service;
 - focused unit tests;
 - a CLI for Mac device testing.
+- append-only SQLite observations with current heads and FTS5 search;
+- resumable one-to-one iMessage history ingestion with durable source cursors.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -55,6 +57,7 @@ swift test
 swift run assistantctl doctor
 swift run assistantctl chats
 swift run assistantctl echo --chat-id <SELF_CHAT_ID>
+swift run assistantctl index-messages --control-chat-id <SELF_CHAT_ID>
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo process never chooses a recipient; it can send only to the chat ID supplied at startup.
@@ -74,9 +77,9 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Finish the P0 physical-device matrix and record reliability failures.
-2. Fix any failures that violate the transport invariants.
-3. Build the thin Messages + Calendar + Contacts vertical slice.
+1. Validate Messages history catch-up and resume on the Mac.
+2. Add read-only Calendar and Contacts adapters.
+3. Build the deterministic commitment and meeting-context views.
 4. Add the evidence/assertion ledger before any broad personal-memory feature.
 5. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
 
