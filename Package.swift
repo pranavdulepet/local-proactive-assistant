@@ -12,14 +12,7 @@ let package = Package(
         .executable(name: "assistantctl", targets: ["assistantctl"]),
     ],
     targets: [
-        .systemLibrary(
-            name: "CSQLite",
-            pkgConfig: "sqlite3",
-            providers: [
-                .brew(["sqlite3"]),
-                .apt(["libsqlite3-dev"]),
-            ]
-        ),
+        .systemLibrary(name: "CSQLite"),
         .target(name: "AssistantCore"),
         .target(
             name: "AssistantStore",
