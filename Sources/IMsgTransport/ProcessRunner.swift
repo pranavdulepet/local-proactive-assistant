@@ -1,5 +1,11 @@
 import AssistantCore
+import Darwin
 import Foundation
+
+func transportDebugLog(_ message: String) {
+    guard ProcessInfo.processInfo.environment["ASSISTANT_DEBUG"] == "1" else { return }
+    try? FileHandle.standardError.write(contentsOf: Data("[transport] \(message)\n".utf8))
+}
 
 enum ProcessRunner {
     static func run(
@@ -79,6 +85,7 @@ final class StreamingProcess: @unchecked Sendable {
 
             do {
                 try process.run()
+                transportDebugLog("started \(executable) \(arguments.joined(separator: " "))")
                 if let initialStandardInput, let stdin {
                     try stdin.fileHandleForWriting.write(contentsOf: initialStandardInput)
                 }
@@ -90,9 +97,22 @@ final class StreamingProcess: @unchecked Sendable {
             let reader = Task.detached { [self] in
                 do {
                     while !Task.isCancelled {
-                        let chunk = try self.stdout.fileHandleForReading.read(upToCount: 4_096)
-                            ?? Data()
-                        guard !chunk.isEmpty else { break }
+                        var bytes = [UInt8](repeating: 0, count: 4_096)
+                        let count = bytes.withUnsafeMutableBytes { buffer in
+                            Darwin.read(
+                                self.stdout.fileHandleForReading.fileDescriptor,
+                                buffer.baseAddress,
+                                buffer.count
+                            )
+                        }
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                        }
+                        guard count > 0 else { break }
+
+                        let chunk = Data(bytes.prefix(count))
+                        transportDebugLog("received \(count) stdout bytes")
 
                         self.lock.withLock {
                             self.buffer.append(chunk)
