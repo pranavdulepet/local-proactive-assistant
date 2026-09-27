@@ -67,9 +67,9 @@ public actor EventKitCalendarSource: CalendarEventSource {
             calendarTitle: event.calendar.title,
             location: event.location,
             organizer: event.organizer.flatMap(participantIdentifier),
-            attendees: (event.attendees ?? []).compactMap(participantIdentifier),
+            attendees: (event.attendees ?? []).compactMap(participantIdentifier).sorted(),
             notes: event.notes,
-            recurrenceRules: recurrenceRules.map(recurrenceDescription),
+            recurrenceRules: recurrenceRules.map(recurrenceDescription).sorted(),
             status: status(event.status),
             isAllDay: event.isAllDay,
             lastModifiedDate: event.lastModifiedDate
