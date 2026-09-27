@@ -17,7 +17,8 @@ Milestone 1 establishes one local evidence path for Messages, Calendar, and Cont
 - owner, known-external, and unknown-external trust labels.
 - read-only EventKit ingestion for events from 90 days ago through 365 days ahead;
 - Calendar titles, times, calendar names, locations, organizers, attendee identifiers,
-  recurrence descriptions, status, and notes normalized as structured-source observations.
+  recurrence descriptions, status, and notes normalized as structured-source observations;
+- stable per-occurrence IDs and deterministic recurrence serialization across refreshes.
 
 An observation records source text and provenance. It does not represent a trusted fact, commitment, preference, or assistant policy. Those require deterministic routing or a later typed assertion step.
 

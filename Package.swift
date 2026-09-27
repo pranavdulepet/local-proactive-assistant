@@ -57,5 +57,9 @@ let package = Package(
             name: "IMsgTransportTests",
             dependencies: ["AssistantCore", "IMsgTransport"]
         ),
+        .testTarget(
+            name: "EventKitAdapterTests",
+            dependencies: ["EventKitAdapter"]
+        ),
     ]
 )
