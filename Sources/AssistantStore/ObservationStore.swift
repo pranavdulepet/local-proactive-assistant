@@ -282,7 +282,7 @@ public actor ObservationStore {
     private static func execute(_ sql: String, on database: OpaquePointer) throws {
         var error: UnsafeMutablePointer<CChar>?
         guard sqlite3_exec(database, sql, nil, nil, &error) == SQLITE_OK else {
-            let detail = error.map(String.init(cString:)) ?? "unknown SQLite error"
+            let detail = error.map { String(cString: $0) } ?? "unknown SQLite error"
             sqlite3_free(error)
             throw ObservationStoreFailure(detail)
         }
