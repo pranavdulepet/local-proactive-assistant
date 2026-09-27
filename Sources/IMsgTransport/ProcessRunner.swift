@@ -1,3 +1,4 @@
+import AssistantCore
 import Foundation
 
 enum ProcessRunner {
