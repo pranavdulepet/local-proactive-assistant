@@ -11,7 +11,7 @@ public actor ContactsStoreSource: ContactSource {
 
     public func authorizationStatus() -> ContactAuthorizationStatus {
         let status = CNContactStore.authorizationStatus(for: .contacts)
-        switch status {
+        return switch status {
         case .notDetermined:
             .notDetermined
         case .restricted:
