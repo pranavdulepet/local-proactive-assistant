@@ -87,9 +87,7 @@ final class StreamingProcess: @unchecked Sendable {
                 return
             }
 
-            let reader = Task.detached { [weak self] in
-                guard let self else { return }
-
+            let reader = Task.detached { [self] in
                 do {
                     while !Task.isCancelled {
                         let chunk = try self.stdout.fileHandleForReading.read(upToCount: 4_096)
