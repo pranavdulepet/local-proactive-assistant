@@ -12,7 +12,7 @@ struct MeetingContextServiceTests {
             source: .contacts,
             externalID: "contact-alex",
             timestamp: nil,
-            handles: ["alex@example.com", "+14155550123"],
+            handles: ["+14155550123", "alex@example.com"],
             text: "Alex Rivera\nNickname: Lex\nEmails: alex@example.com"
         )
         let meeting = observation(
