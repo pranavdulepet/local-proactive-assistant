@@ -60,6 +60,11 @@ struct MessagesIngestorTests {
         #expect(
             try await store.current(source: .messages, externalID: "unknown")?.trust == .unknownExternal
         )
+        #expect(
+            try await store.current(source: .messages, externalID: "unknown")?.handles
+                == ["+14155550123"]
+        )
+        #expect(try await store.sourceCoverage(for: .messages)?.status == .partial)
     }
 
     @Test
@@ -100,7 +105,8 @@ struct MessagesIngestorTests {
             isFromMe: isFromMe,
             isGroup: isGroup,
             senderName: nil,
-            createdAt: Date(timeIntervalSince1970: 1_800_000_000 + Double(id))
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000 + Double(id)),
+            participantHandle: "+1 (415) 555-0123"
         )
     }
 }

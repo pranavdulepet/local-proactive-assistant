@@ -285,6 +285,9 @@ private struct IMsgMessage: Decodable {
     let isGroup: Bool?
     let senderName: String?
     let createdAt: String
+    let sender: String?
+    let chatIdentifier: String?
+    let participants: [String]?
 
     enum CodingKeys: String, CodingKey {
         case id, guid, text
@@ -293,6 +296,9 @@ private struct IMsgMessage: Decodable {
         case isGroup = "is_group"
         case senderName = "sender_name"
         case createdAt = "created_at"
+        case sender
+        case chatIdentifier = "chat_identifier"
+        case participants
     }
 
     var transportMessage: InboundTransportMessage {
@@ -325,7 +331,8 @@ private struct IMsgMessage: Decodable {
                 isFromMe: isFromMe,
                 isGroup: isGroup ?? false,
                 senderName: senderName,
-                createdAt: date
+                createdAt: date,
+                participantHandle: participants?.first ?? chatIdentifier ?? sender
             )
         }
     }

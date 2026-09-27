@@ -60,7 +60,8 @@ public struct CalendarIngestor: Sendable {
             throw ObservationStoreFailure("Stored Calendar cursor is not an integer")
         }
         let previousRevision = savedCursor.flatMap(Int64.init) ?? 0
-        let currentMilliseconds = Int64(clock().timeIntervalSince1970 * 1_000)
+        let syncDate = clock()
+        let currentMilliseconds = Int64(syncDate.timeIntervalSince1970 * 1_000)
         let revision = max(currentMilliseconds, previousRevision + 1)
         let records = try await source.events(from: startDate, to: endDate)
         let observations = try records.map { try Self.observation(for: $0, revision: revision) }
@@ -68,6 +69,15 @@ public struct CalendarIngestor: Sendable {
             observations,
             advancing: .calendar,
             cursor: String(revision)
+        )
+        try await store.refreshCoverage(
+            for: .calendar,
+            status: .partial,
+            limitations: [
+                "Coverage is limited to the requested refresh window.",
+                "Deleted events are not yet reconciled.",
+            ],
+            at: syncDate
         )
 
         return CalendarIngestionSummary(
@@ -97,6 +107,9 @@ public struct CalendarIngestor: Sendable {
             sourceRevision: revision,
             sourceTimestamp: event.startDate,
             trust: .structuredSource,
+            handles: PersonHandle.normalize(
+                [event.organizer].compactMap { $0 } + event.attendees
+            ),
             text: searchText(for: event),
             locator: "eventkit:\(event.calendarItemIdentifier):\(startMilliseconds)"
         )

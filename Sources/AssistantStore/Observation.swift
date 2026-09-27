@@ -1,10 +1,5 @@
 import Foundation
-
-public enum ObservationSource: String, Codable, CaseIterable, Hashable, Sendable {
-    case messages
-    case calendar
-    case contacts
-}
+import AssistantCore
 
 public enum ObservationTrust: String, Codable, Sendable {
     case ownerAuthored
@@ -22,6 +17,7 @@ public struct Observation: Codable, Equatable, Identifiable, Sendable {
     public let observedAt: Date
     public let sourceTimestamp: Date?
     public let trust: ObservationTrust
+    public let handles: [String]
     public let text: String
     public let locator: String
     public let tombstone: Bool
@@ -35,6 +31,7 @@ public struct Observation: Codable, Equatable, Identifiable, Sendable {
         observedAt: Date = Date(),
         sourceTimestamp: Date? = nil,
         trust: ObservationTrust,
+        handles: [String] = [],
         text: String,
         locator: String,
         tombstone: Bool = false
@@ -47,6 +44,7 @@ public struct Observation: Codable, Equatable, Identifiable, Sendable {
         self.observedAt = observedAt
         self.sourceTimestamp = sourceTimestamp
         self.trust = trust
+        self.handles = handles
         self.text = text
         self.locator = locator
         self.tombstone = tombstone

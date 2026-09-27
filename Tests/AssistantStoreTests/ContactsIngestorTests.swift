@@ -43,7 +43,9 @@ struct ContactsIngestorTests {
         #expect(stored?.trust == .structuredSource)
         #expect(stored?.text.contains("Alex Rivera") == true)
         #expect(stored?.text.contains("alex@example.com") == true)
+        #expect(stored?.handles == ["+14155550123", "alex@example.com"])
         #expect(try await store.search("Rivera", sources: [.contacts]).count == 1)
+        #expect(try await store.sourceCoverage(for: .contacts)?.status == .ready)
     }
 
     @Test

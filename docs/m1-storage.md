@@ -23,6 +23,10 @@ Milestone 1 establishes one local evidence path for Messages, Calendar, and Cont
   organizations, and roles;
 - deletion tombstones for full-access Contacts snapshots, without treating hidden contacts
   as deleted when access is partial.
+- normalized phone/email handles attached to current observations for exact cross-source joins;
+- persisted source coverage with status, time bounds, last successful sync, cursor, and
+  limitations;
+- deterministic exact contact resolution and upcoming meeting-context evidence.
 
 An observation records source text and provenance. It does not represent a trusted fact, commitment, preference, or assistant policy. Those require deterministic routing or a later typed assertion step.
 
@@ -30,14 +34,15 @@ An observation records source text and provenance. It does not represent a trust
 
 - Calendar deletion reconciliation and coverage outside the bounded scan window;
 - commitment extraction;
-- materialized commitment and meeting views;
+- commitment extraction and a materialized commitment view;
 - model inference;
 - proactive sending;
 - Mail and embeddings.
 
 ## Next slice
 
-Expose source coverage and a deterministic “What am I forgetting?” query over the local observation store.
+Add the deterministic commitment query for “What am I forgetting?” over the local
+observation store. It remains separate from the meeting-context evidence query.
 
 Run a Messages catch-up manually with:
 
@@ -66,3 +71,32 @@ swift run assistantctl index-contacts
 The first run asks macOS for Contacts access. Later full-access snapshots tombstone contacts
 that disappeared from the address book. Partial access is reported explicitly and never uses
 absence as deletion evidence.
+
+Inspect what each source can currently support:
+
+```bash
+swift run assistantctl source-status
+```
+
+Get the first deterministic meeting-context evidence bundle by exact contact name, nickname,
+phone number, or email address:
+
+```bash
+swift run assistantctl meeting-context --person "Alex Rivera"
+```
+
+The command stops on ambiguous names rather than merging people or guessing. It returns the
+next matching Calendar event and up to ten direct messages from the preceding 90 days. It does
+not generate a model-written answer.
+
+Existing Messages observations predate handle provenance. After upgrading, clear only the
+Messages source cursor and run the indexer once to append handle-aware versions while keeping
+the old observations:
+
+```bash
+DB="$HOME/Library/Application Support/LocalProactiveAssistant/assistant.sqlite"
+sqlite3 "$DB" "DELETE FROM source_cursors WHERE source = 'messages';"
+swift run assistantctl index-messages --control-chat-id <SELF_CHAT_ID>
+swift run assistantctl index-calendar
+swift run assistantctl index-contacts
+```

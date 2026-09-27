@@ -1,4 +1,5 @@
 import CSQLite
+import AssistantCore
 import Foundation
 
 public struct ObservationStoreFailure: Error, CustomStringConvertible, Sendable {
@@ -164,6 +165,156 @@ public actor ObservationStore {
         }
     }
 
+    public func currentObservations(
+        source: ObservationSource,
+        matchingAnyHandle handles: Set<String>,
+        from startDate: Date? = nil,
+        to endDate: Date? = nil,
+        limit: Int = 100
+    ) throws -> [Observation] {
+        guard !handles.isEmpty, limit > 0 else { return [] }
+        let sortedHandles = handles.sorted()
+        let placeholders = Array(repeating: "?", count: sortedHandles.count)
+            .joined(separator: ", ")
+        let sql = """
+        SELECT DISTINCT o.id, o.source, o.external_id, o.version_hash, o.source_revision,
+               o.observed_at, o.source_timestamp, o.trust, o.text, o.locator,
+               o.tombstone
+        FROM observation_handles oh
+        JOIN observation_heads h ON h.observation_id = oh.observation_id
+        JOIN observations o ON o.id = h.observation_id
+        WHERE o.source = ?
+          AND o.tombstone = 0
+          AND oh.handle IN (\(placeholders))
+          AND (? IS NULL OR o.source_timestamp >= ?)
+          AND (? IS NULL OR o.source_timestamp <= ?)
+        ORDER BY o.source_timestamp, o.external_id
+        LIMIT ?
+        """
+        let statement = try prepare(sql)
+        defer { sqlite3_finalize(statement) }
+
+        try bind(source.rawValue, at: 1, to: statement)
+        var index = Int32(2)
+        for handle in sortedHandles {
+            try bind(handle, at: index, to: statement)
+            index += 1
+        }
+        try bind(startDate?.timeIntervalSince1970, at: index, to: statement)
+        try bind(startDate?.timeIntervalSince1970, at: index + 1, to: statement)
+        try bind(endDate?.timeIntervalSince1970, at: index + 2, to: statement)
+        try bind(endDate?.timeIntervalSince1970, at: index + 3, to: statement)
+        try bind(Int64(limit), at: index + 4, to: statement)
+
+        var observations: [Observation] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                observations.append(try decodeObservation(statement))
+            case SQLITE_DONE:
+                return observations
+            default:
+                throw failure("Could not read observations by handle")
+            }
+        }
+    }
+
+    @discardableResult
+    public func refreshCoverage(
+        for source: ObservationSource,
+        status: CoverageStatus,
+        limitations: [String],
+        at syncDate: Date = Date()
+    ) throws -> SourceCoverage {
+        let (earliest, latest) = try currentTimestampBounds(for: source)
+        let cursor = try sourceCursor(for: source)
+        let limitationsData = try JSONEncoder().encode(limitations)
+        guard let limitationsJSON = String(data: limitationsData, encoding: .utf8) else {
+            throw ObservationStoreFailure("Could not encode source coverage limitations")
+        }
+
+        let statement = try prepare(
+            """
+            INSERT INTO source_coverage (
+                source, status, earliest_available, latest_observed,
+                last_successful_sync, cursor, limitations
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source) DO UPDATE SET
+                status = excluded.status,
+                earliest_available = excluded.earliest_available,
+                latest_observed = excluded.latest_observed,
+                last_successful_sync = excluded.last_successful_sync,
+                cursor = excluded.cursor,
+                limitations = excluded.limitations
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        try bind(status.rawValue, at: 2, to: statement)
+        try bind(earliest?.timeIntervalSince1970, at: 3, to: statement)
+        try bind(latest?.timeIntervalSince1970, at: 4, to: statement)
+        try bind(syncDate.timeIntervalSince1970, at: 5, to: statement)
+        try bind(cursor, at: 6, to: statement)
+        try bind(limitationsJSON, at: 7, to: statement)
+        try step(statement, operation: "save source coverage")
+
+        return SourceCoverage(
+            source: source,
+            status: status,
+            earliestAvailable: earliest,
+            latestObserved: latest,
+            lastSuccessfulSync: syncDate,
+            cursor: cursor,
+            limitations: limitations
+        )
+    }
+
+    private func currentTimestampBounds(
+        for source: ObservationSource
+    ) throws -> (Date?, Date?) {
+        let statement = try prepare(
+            """
+            SELECT MIN(o.source_timestamp), MAX(o.source_timestamp)
+            FROM observation_heads h
+            JOIN observations o ON o.id = h.observation_id
+            WHERE h.source = ? AND o.tombstone = 0
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw failure("Could not calculate source coverage")
+        }
+        return (
+            optionalDate(at: 0, from: statement),
+            optionalDate(at: 1, from: statement)
+        )
+    }
+
+    public func sourceCoverage(for source: ObservationSource) throws -> SourceCoverage? {
+        let statement = try prepare(
+            """
+            SELECT source, status, earliest_available, latest_observed,
+                   last_successful_sync, cursor, limitations
+            FROM source_coverage WHERE source = ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return try decodeCoverage(statement)
+        case SQLITE_DONE:
+            return nil
+        default:
+            throw failure("Could not read source coverage")
+        }
+    }
+
+    public func sourceCoverages() throws -> [SourceCoverage] {
+        try ObservationSource.allCases.compactMap { try sourceCoverage(for: $0) }
+    }
+
     public func search(
         _ query: String,
         sources: Set<ObservationSource> = Set(ObservationSource.allCases),
@@ -227,6 +378,7 @@ public actor ObservationStore {
         if inserted && !observation.tombstone {
             try insertSearchText(id: storedID, text: observation.text)
         }
+        try insertHandles(observation.handles, observationID: storedID)
         try updateHead(
             source: observation.source,
             externalID: observation.externalID,
@@ -312,6 +464,18 @@ public actor ObservationStore {
         try step(statement, operation: "index observation")
     }
 
+    private func insertHandles(_ handles: [String], observationID: String) throws {
+        for handle in Set(handles) {
+            let statement = try prepare(
+                "INSERT OR IGNORE INTO observation_handles (observation_id, handle) VALUES (?, ?)"
+            )
+            defer { sqlite3_finalize(statement) }
+            try bind(observationID, at: 1, to: statement)
+            try bind(handle, at: 2, to: statement)
+            try step(statement, operation: "index observation handle")
+        }
+    }
+
     private func updateHead(
         source: ObservationSource,
         externalID: String,
@@ -327,7 +491,7 @@ public actor ObservationStore {
             DO UPDATE SET
                 observation_id = excluded.observation_id,
                 source_revision = excluded.source_revision
-            WHERE excluded.source_revision > observation_heads.source_revision
+            WHERE excluded.source_revision >= observation_heads.source_revision
             """
         )
         defer { sqlite3_finalize(statement) }
@@ -357,10 +521,59 @@ public actor ObservationStore {
             observedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
             sourceTimestamp: sourceTimestamp,
             trust: trust,
+            handles: try handles(for: id.uuidString),
             text: try text(at: 8, from: statement),
             locator: try text(at: 9, from: statement),
             tombstone: sqlite3_column_int(statement, 10) != 0
         )
+    }
+
+    private func handles(for observationID: String) throws -> [String] {
+        let statement = try prepare(
+            "SELECT handle FROM observation_handles WHERE observation_id = ? ORDER BY handle"
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(observationID, at: 1, to: statement)
+        var handles: [String] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                handles.append(try text(at: 0, from: statement))
+            case SQLITE_DONE:
+                return handles
+            default:
+                throw failure("Could not read observation handles")
+            }
+        }
+    }
+
+    private func decodeCoverage(_ statement: OpaquePointer) throws -> SourceCoverage {
+        guard let source = ObservationSource(rawValue: try text(at: 0, from: statement)),
+              let status = CoverageStatus(rawValue: try text(at: 1, from: statement)) else {
+            throw ObservationStoreFailure("Stored source coverage contains an unknown value")
+        }
+        let data = Data(try text(at: 6, from: statement).utf8)
+        return SourceCoverage(
+            source: source,
+            status: status,
+            earliestAvailable: optionalDate(at: 2, from: statement),
+            latestObserved: optionalDate(at: 3, from: statement),
+            lastSuccessfulSync: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4)),
+            cursor: optionalText(at: 5, from: statement),
+            limitations: try JSONDecoder().decode([String].self, from: data)
+        )
+    }
+
+    private func optionalDate(at index: Int32, from statement: OpaquePointer) -> Date? {
+        sqlite3_column_type(statement, index) == SQLITE_NULL
+            ? nil
+            : Date(timeIntervalSince1970: sqlite3_column_double(statement, index))
+    }
+
+    private func optionalText(at index: Int32, from statement: OpaquePointer) -> String? {
+        guard sqlite3_column_type(statement, index) != SQLITE_NULL,
+              let value = sqlite3_column_text(statement, index) else { return nil }
+        return String(cString: value)
     }
 
     private func execute(_ sql: String) throws {
@@ -395,8 +608,24 @@ public actor ObservationStore {
         try check(result, operation: "bind text")
     }
 
+    private func bind(_ value: String?, at index: Int32, to statement: OpaquePointer) throws {
+        if let value {
+            try bind(value, at: index, to: statement)
+        } else {
+            try check(sqlite3_bind_null(statement, index), operation: "bind null text")
+        }
+    }
+
     private func bind(_ value: Double, at index: Int32, to statement: OpaquePointer) throws {
         try check(sqlite3_bind_double(statement, index, value), operation: "bind number")
+    }
+
+    private func bind(_ value: Double?, at index: Int32, to statement: OpaquePointer) throws {
+        if let value {
+            try bind(value, at: index, to: statement)
+        } else {
+            try check(sqlite3_bind_null(statement, index), operation: "bind null number")
+        }
     }
 
     private func bind(_ value: Int, at index: Int32, to statement: OpaquePointer) throws {
@@ -467,6 +696,22 @@ public actor ObservationStore {
         updated_at REAL NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS observation_handles (
+        observation_id TEXT NOT NULL REFERENCES observations(id),
+        handle TEXT NOT NULL,
+        PRIMARY KEY (observation_id, handle)
+    );
+
+    CREATE TABLE IF NOT EXISTS source_coverage (
+        source TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        earliest_available REAL,
+        latest_observed REAL,
+        last_successful_sync REAL NOT NULL,
+        cursor TEXT,
+        limitations TEXT NOT NULL
+    );
+
     CREATE VIRTUAL TABLE IF NOT EXISTS observation_fts USING fts5(
         observation_id UNINDEXED,
         text,
@@ -475,6 +720,9 @@ public actor ObservationStore {
 
     CREATE INDEX IF NOT EXISTS observations_source_time
     ON observations(source, source_timestamp);
+
+    CREATE INDEX IF NOT EXISTS observation_handles_handle
+    ON observation_handles(handle);
     """
 }
 

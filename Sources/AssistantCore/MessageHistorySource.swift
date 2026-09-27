@@ -9,6 +9,7 @@ public struct HistoricalMessage: Equatable, Sendable {
     public let isGroup: Bool
     public let senderName: String?
     public let createdAt: Date
+    public let participantHandle: String?
 
     public init(
         cursor: TransportCursor,
@@ -18,7 +19,8 @@ public struct HistoricalMessage: Equatable, Sendable {
         isFromMe: Bool,
         isGroup: Bool,
         senderName: String?,
-        createdAt: Date
+        createdAt: Date,
+        participantHandle: String? = nil
     ) {
         self.cursor = cursor
         self.guid = guid
@@ -28,6 +30,7 @@ public struct HistoricalMessage: Equatable, Sendable {
         self.isGroup = isGroup
         self.senderName = senderName
         self.createdAt = createdAt
+        self.participantHandle = participantHandle
     }
 }
 

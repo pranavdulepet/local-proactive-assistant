@@ -56,7 +56,8 @@ public struct ContactsIngestor: Sendable {
             throw ObservationStoreFailure("Stored Contacts cursor is not an integer")
         }
         let previousRevision = savedCursor.flatMap(Int64.init) ?? 0
-        let currentMilliseconds = Int64(clock().timeIntervalSince1970 * 1_000)
+        let syncDate = clock()
+        let currentMilliseconds = Int64(syncDate.timeIntervalSince1970 * 1_000)
         let revision = max(currentMilliseconds, previousRevision + 1)
         let records = try await source.contacts()
         var observations = try records.map { try Self.observation(for: $0, revision: revision) }
@@ -75,6 +76,15 @@ public struct ContactsIngestor: Sendable {
             observations,
             advancing: .contacts,
             cursor: String(revision)
+        )
+        let limitations = authorization == .limited
+            ? ["macOS granted access to only a subset of contacts."]
+            : []
+        try await store.refreshCoverage(
+            for: .contacts,
+            status: authorization == .authorized ? .ready : .partial,
+            limitations: limitations,
+            at: syncDate
         )
         return ContactsIngestionSummary(
             scanned: records.count,
@@ -99,6 +109,7 @@ public struct ContactsIngestor: Sendable {
             versionHash: versionHash,
             sourceRevision: revision,
             trust: .structuredSource,
+            handles: PersonHandle.normalize(contact.phoneNumbers + contact.emailAddresses),
             text: searchText(for: contact),
             locator: "contacts:\(contact.externalID)"
         )

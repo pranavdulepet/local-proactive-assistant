@@ -141,6 +141,57 @@ struct AssistantCLI {
                     + "cursor \(summary.cursor)."
             )
 
+        case "source-status":
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let formatter = ISO8601DateFormatter()
+            for source in ObservationSource.allCases {
+                guard let coverage = try await store.sourceCoverage(for: source) else {
+                    print("\(source.rawValue): never synced")
+                    continue
+                }
+                print("\(source.rawValue): \(coverage.status.rawValue)")
+                print("  last sync: \(formatter.string(from: coverage.lastSuccessfulSync))")
+                if let earliest = coverage.earliestAvailable,
+                   let latest = coverage.latestObserved {
+                    print(
+                        "  observed: \(formatter.string(from: earliest)) "
+                            + "through \(formatter.string(from: latest))"
+                    )
+                }
+                if let cursor = coverage.cursor { print("  cursor: \(cursor)") }
+                for limitation in coverage.limitations {
+                    print("  limitation: \(limitation)")
+                }
+            }
+
+        case "meeting-context":
+            guard let person = takeOption("--person", from: &arguments) else {
+                throw CLIError(
+                    "meeting-context requires --person <exact name, nickname, phone, or email>"
+                )
+            }
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let evidence = try await MeetingContextService(store: store).evidence(for: person)
+            let formatter = ISO8601DateFormatter()
+            print("Person")
+            print(indentedSummary(evidence.person.text))
+            print("\nUpcoming meeting")
+            print(indentedSummary(evidence.meeting.text))
+            print("\nRecent direct messages (up to 10)")
+            if evidence.recentMessages.isEmpty {
+                print("  none in the indexed 90-day lookback")
+            } else {
+                for message in evidence.recentMessages {
+                    let timestamp = message.sourceTimestamp.map(formatter.string(from:)) ?? "unknown"
+                    let text = message.text.replacingOccurrences(of: "\n", with: " ")
+                    print("  \(timestamp)  \(text)")
+                }
+            }
+            print("\nCoverage used")
+            for coverage in evidence.coverage {
+                print("  \(coverage.source.rawValue): \(coverage.status.rawValue)")
+            }
+
         default:
             throw CLIError("unknown command: \(command)")
         }
@@ -167,6 +218,12 @@ struct AssistantCLI {
             .appendingPathComponent(filename)
     }
 
+    private static func indentedSummary(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { "  \($0)" }
+            .joined(separator: "\n")
+    }
+
     private static func printUsage() {
         print("""
         Usage:
@@ -176,6 +233,8 @@ struct AssistantCLI {
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
           assistantctl index-calendar
           assistantctl index-contacts
+          assistantctl source-status
+          assistantctl meeting-context --person <exact name, nickname, phone, or email>
         """)
     }
 }

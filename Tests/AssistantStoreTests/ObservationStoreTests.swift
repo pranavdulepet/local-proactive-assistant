@@ -185,6 +185,62 @@ struct ObservationStoreTests {
         #expect(try await store.current(source: .messages, externalID: valid.externalID) == valid)
     }
 
+    @Test
+    func indexesHandlesAndCanReplaceAHeadAtTheSameRevision() async throws {
+        let store = try ObservationStore()
+        let original = message(
+            externalID: "message-1",
+            versionHash: "without-handle",
+            text: "Original"
+        )
+        let upgraded = Observation(
+            source: .messages,
+            externalID: "message-1",
+            versionHash: "with-handle",
+            sourceRevision: 1,
+            observedAt: original.observedAt,
+            sourceTimestamp: original.sourceTimestamp,
+            trust: .ownerAuthored,
+            handles: ["alex@example.com"],
+            text: "Upgraded",
+            locator: original.locator
+        )
+
+        try await store.record(original)
+        try await store.record(upgraded)
+
+        #expect(try await store.current(source: .messages, externalID: "message-1") == upgraded)
+        #expect(
+            try await store.currentObservations(
+                source: .messages,
+                matchingAnyHandle: ["alex@example.com"]
+            ) == [upgraded]
+        )
+    }
+
+    @Test
+    func persistsSourceCoverage() async throws {
+        let store = try ObservationStore()
+        let syncDate = Date(timeIntervalSince1970: 1_900_000_000)
+        try await store.record(
+            [message(externalID: "message-1", versionHash: "v1", text: "Hello")],
+            advancing: .messages,
+            cursor: "42"
+        )
+
+        let coverage = try await store.refreshCoverage(
+            for: .messages,
+            status: .partial,
+            limitations: ["Text only."],
+            at: syncDate
+        )
+
+        #expect(coverage.cursor == "42")
+        #expect(coverage.earliestAvailable == Date(timeIntervalSince1970: 1_799_999_000))
+        #expect(try await store.sourceCoverage(for: .messages) == coverage)
+        #expect(try await store.sourceCoverages() == [coverage])
+    }
+
     private func message(
         externalID: String,
         versionHash: String,
