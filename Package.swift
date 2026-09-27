@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "AssistantStore", targets: ["AssistantStore"]),
+        .library(name: "EventKitAdapter", targets: ["EventKitAdapter"]),
         .library(name: "IMsgTransport", targets: ["IMsgTransport"]),
         .executable(name: "assistantctl", targets: ["assistantctl"]),
     ],
@@ -22,9 +23,27 @@ let package = Package(
             name: "IMsgTransport",
             dependencies: ["AssistantCore"]
         ),
+        .target(
+            name: "EventKitAdapter",
+            dependencies: ["AssistantCore"]
+        ),
         .executableTarget(
             name: "assistantctl",
-            dependencies: ["AssistantCore", "AssistantStore", "IMsgTransport"]
+            dependencies: [
+                "AssistantCore",
+                "AssistantStore",
+                "EventKitAdapter",
+                "IMsgTransport",
+            ],
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/assistantctl/Info.plist",
+                ])
+            ]
         ),
         .testTarget(
             name: "AssistantCoreTests",

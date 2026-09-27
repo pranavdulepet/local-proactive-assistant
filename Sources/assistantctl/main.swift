@@ -1,6 +1,7 @@
 import AssistantCore
 import AssistantStore
 import Darwin
+import EventKitAdapter
 import Foundation
 import IMsgTransport
 
@@ -105,6 +106,27 @@ struct AssistantCLI {
                     + "across \(summary.pages) page(s); cursor \(summary.cursor.rawValue)."
             )
 
+        case "index-calendar":
+            let now = Date()
+            let calendar = Calendar.current
+            guard let startDate = calendar.date(byAdding: .day, value: -90, to: now),
+                  let endDate = calendar.date(byAdding: .day, value: 365, to: now) else {
+                throw CLIError("could not calculate the Calendar scan window")
+            }
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let ingestor = CalendarIngestor(
+                source: EventKitCalendarSource(),
+                store: store
+            )
+            let summary = try await ingestor.run(from: startDate, to: endDate)
+            let formatter = ISO8601DateFormatter()
+            print(
+                "Indexed \(summary.indexed) of \(summary.scanned) Calendar events; "
+                    + "window \(formatter.string(from: summary.startDate)) "
+                    + "through \(formatter.string(from: summary.endDate)); "
+                    + "cursor \(summary.cursor)."
+            )
+
         default:
             throw CLIError("unknown command: \(command)")
         }
@@ -138,6 +160,7 @@ struct AssistantCLI {
           assistantctl chats [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
+          assistantctl index-calendar
         """)
     }
 }
