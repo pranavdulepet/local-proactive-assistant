@@ -109,17 +109,13 @@ public actor ContactsStoreSource: ContactSource {
     }
 
     static func normalizedPhoneNumber(_ rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let digits = trimmed.filter(\.isNumber)
-        guard !digits.isEmpty else { return nil }
-        return trimmed.hasPrefix("+") ? "+\(digits)" : digits
+        guard let normalized = PersonHandle.normalize(rawValue),
+              !normalized.contains("@") else { return nil }
+        return normalized
     }
 
     static func normalizedEmailAddress(_ rawValue: String) -> String? {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return normalized.isEmpty ? nil : normalized
+        PersonHandle.normalize(rawValue)
     }
 
     private static func value(_ rawValue: String) -> String? {

@@ -50,7 +50,7 @@ struct IMsgTransportTests {
         #!/bin/sh
         IFS= read -r request
         request_id=$(printf '%s\n' "$request" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-        printf '{"jsonrpc":"2.0","id":"%s","result":{"messages":[{"id":101,"guid":"message-guid","chat_id":42,"text":"hello","is_from_me":false,"is_group":false,"sender_name":"Alice","created_at":"2026-09-27T00:57:57.794Z"}],"next_rowid":123,"has_more":true}}\n' "$request_id"
+        printf '{"jsonrpc":"2.0","id":"%s","result":{"messages":[{"id":101,"guid":"message-guid","chat_id":42,"chat_identifier":"+14155550123","participants":["+14155550123"],"text":"hello","is_from_me":false,"is_group":false,"sender_name":"Alice","created_at":"2026-09-27T00:57:57.794Z"}],"next_rowid":123,"has_more":true}}\n' "$request_id"
         """#
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
@@ -70,6 +70,7 @@ struct IMsgTransportTests {
         #expect(page.messages[0].guid == "message-guid")
         #expect(page.messages[0].chatID.rawValue == 42)
         #expect(page.messages[0].senderName == "Alice")
+        #expect(page.messages[0].participantHandle == "+14155550123")
         #expect(!page.messages[0].isGroup)
     }
 

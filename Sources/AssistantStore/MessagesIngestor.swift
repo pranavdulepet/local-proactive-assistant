@@ -82,18 +82,27 @@ public struct MessagesIngestor: Sendable {
             onProgress?(summary)
 
             if !page.hasMore {
+                try await store.refreshCoverage(
+                    for: .messages,
+                    status: .partial,
+                    limitations: [
+                        "One-to-one text messages only; groups, attachments, edits, and deletions are not yet reconciled."
+                    ]
+                )
                 return summary
             }
         }
     }
 
     private static func observation(for message: HistoricalMessage) -> Observation {
+        let handles = PersonHandle.normalize([message.participantHandle].compactMap { $0 })
         let versionInput = [
             message.guid,
             String(message.chatID.rawValue),
             message.text,
             String(message.isFromMe),
             ISO8601DateFormatter().string(from: message.createdAt),
+            handles.joined(separator: ","),
         ].joined(separator: "\u{1F}")
         let digest = SHA256.hash(data: Data(versionInput.utf8))
         let versionHash = digest.map { String(format: "%02x", $0) }.joined()
@@ -113,6 +122,7 @@ public struct MessagesIngestor: Sendable {
             sourceRevision: message.cursor.rawValue,
             sourceTimestamp: message.createdAt,
             trust: trust,
+            handles: handles,
             text: message.text,
             locator: "imsg:chat:\(message.chatID.rawValue):message:\(message.guid)"
         )

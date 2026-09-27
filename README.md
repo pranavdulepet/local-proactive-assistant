@@ -30,6 +30,9 @@ Implemented now:
 - resumable one-to-one Messages history ingestion with durable source cursors.
 - bounded, read-only EventKit ingestion with explicit authorization and scan coverage.
 - deterministic Contacts ingestion for local handle-to-person resolution.
+- persisted, explicit coverage status for Messages, Calendar, and Contacts;
+- exact phone/email joins across contacts, events, and direct messages;
+- a deterministic meeting-context evidence query with explicit ambiguity errors.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -64,6 +67,8 @@ swift run assistantctl echo --chat-id <SELF_CHAT_ID>
 swift run assistantctl index-messages --control-chat-id <SELF_CHAT_ID>
 swift run assistantctl index-calendar
 swift run assistantctl index-contacts
+swift run assistantctl source-status
+swift run assistantctl meeting-context --person "<exact contact name>"
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo process never chooses a recipient; it can send only to the chat ID supplied at startup.
@@ -83,8 +88,8 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Validate Contacts authorization and snapshot refresh on the Mac.
-2. Build the deterministic commitment and meeting-context views.
+1. Validate source coverage and meeting-context evidence on the Mac.
+2. Build the deterministic commitment view for “What am I forgetting?”.
 3. Add the evidence/assertion ledger before any broad personal-memory feature.
 4. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
 

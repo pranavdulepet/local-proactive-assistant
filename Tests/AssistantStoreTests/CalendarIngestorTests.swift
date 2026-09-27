@@ -54,7 +54,9 @@ struct CalendarIngestorTests {
         #expect(stored?.text.contains("Project Cedar review") == true)
         #expect(stored?.text.contains("Room 4") == true)
         #expect(stored?.text.contains("Bring the launch checklist") == true)
+        #expect(stored?.handles == ["owner@example.com", "teammate@example.com"])
         #expect(try await store.search("Cedar", sources: [.calendar]).count == 1)
+        #expect(try await store.sourceCoverage(for: .calendar)?.status == .partial)
     }
 
     @Test
