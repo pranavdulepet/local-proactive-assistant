@@ -4,7 +4,7 @@ A local-first macOS assistant that tracks loose ends and eventually sends a smal
 
 This repository is intentionally starting with the fragile part: a reliable self-chat transport loop. There is no memory, RAG, model runtime, phone app, or autonomous action layer yet.
 
-## Current milestone: P0 reliability validation
+## Current milestone: M1 thin vertical slice
 
 The first slice:
 
@@ -28,6 +28,10 @@ Implemented now:
 - a CLI for Mac device testing.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
+
+The P0 self-chat gate has passed physical round-trip, restart/resume, forced reconnect, duplicate-content, tapback, cellular, and delayed-sync checks. Lock-screen, reboot, and long-run checks remain ongoing soak tests.
+
+Milestone 1 starts with a small `AssistantStore` module: append-only, versioned observations from Messages, Calendar, and Contacts; current-version heads; tombstones; and SQLite FTS5 search. See [docs/m1-storage.md](docs/m1-storage.md).
 
 ## Requirements
 
