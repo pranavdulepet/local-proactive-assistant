@@ -1,4 +1,5 @@
 import AssistantCore
+import AssistantStore
 import Darwin
 import Foundation
 import IMsgTransport
@@ -82,6 +83,23 @@ struct AssistantCLI {
                 }
             }
 
+        case "index-messages":
+            guard let rawChatID = takeOption("--control-chat-id", from: &arguments),
+                  let chatID = Int64(rawChatID), chatID > 0 else {
+                throw CLIError("index-messages requires --control-chat-id <positive integer>")
+            }
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let ingestor = MessagesIngestor(
+                source: transport,
+                store: store,
+                excludedChatIDs: [TransportChatID(rawValue: chatID)]
+            )
+            let summary = try await ingestor.run()
+            print(
+                "Indexed \(summary.indexed) of \(summary.scanned) messages "
+                    + "across \(summary.pages) page(s); cursor \(summary.cursor.rawValue)."
+            )
+
         default:
             throw CLIError("unknown command: \(command)")
         }
@@ -114,6 +132,7 @@ struct AssistantCLI {
           assistantctl doctor [--imsg <path>]
           assistantctl chats [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
+          assistantctl index-messages --control-chat-id <id> [--imsg <path>]
         """)
     }
 }
