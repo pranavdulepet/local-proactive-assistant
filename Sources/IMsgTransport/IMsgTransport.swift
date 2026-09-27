@@ -57,7 +57,7 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         let data = try JSONSerialization.data(withJSONObject: rawMessages)
         let messages = try JSONDecoder().decode([IMsgMessage].self, from: data)
         return MessageHistoryPage(
-            messages: try messages.map(\.historyMessage),
+            messages: try messages.map { try $0.historyMessage },
             nextCursor: TransportCursor(rawValue: nextRowID),
             hasMore: hasMore
         )
