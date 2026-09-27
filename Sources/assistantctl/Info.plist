@@ -12,5 +12,7 @@
     <string>1</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>Read your calendar to build the local assistant index on this Mac.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Read your contacts to resolve message and meeting participants on this Mac.</string>
 </dict>
 </plist>

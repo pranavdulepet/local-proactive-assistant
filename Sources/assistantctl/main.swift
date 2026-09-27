@@ -1,5 +1,6 @@
 import AssistantCore
 import AssistantStore
+import ContactsAdapter
 import Darwin
 import EventKitAdapter
 import Foundation
@@ -127,6 +128,19 @@ struct AssistantCLI {
                     + "cursor \(summary.cursor)."
             )
 
+        case "index-contacts":
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let summary = try await ContactsIngestor(
+                source: ContactsStoreSource(),
+                store: store
+            ).run()
+            print(
+                "Indexed \(summary.indexed) of \(summary.scanned) contacts; "
+                    + "tombstoned \(summary.tombstoned); "
+                    + "access \(summary.authorization.rawValue); "
+                    + "cursor \(summary.cursor)."
+            )
+
         default:
             throw CLIError("unknown command: \(command)")
         }
@@ -161,6 +175,7 @@ struct AssistantCLI {
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
           assistantctl index-calendar
+          assistantctl index-contacts
         """)
     }
 }
