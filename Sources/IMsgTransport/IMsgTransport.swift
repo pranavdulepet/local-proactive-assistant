@@ -26,7 +26,7 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
     public func chats() async throws -> [TransportChat] {
         let data = try await ProcessRunner.run(
             executable: executable,
-            arguments: ["chats", "--limit", "10000", "--json"]
+            arguments: ["chats", "--limit", "100", "--json"]
         )
 
         return try data

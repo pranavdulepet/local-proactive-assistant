@@ -27,7 +27,7 @@ Implemented now:
 - focused unit tests;
 - a CLI for Mac device testing.
 - append-only SQLite observations with current heads and FTS5 search;
-- resumable one-to-one iMessage history ingestion with durable source cursors.
+- resumable one-to-one Messages history ingestion with durable source cursors.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 

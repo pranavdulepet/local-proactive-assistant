@@ -94,7 +94,12 @@ struct AssistantCLI {
                 store: store,
                 excludedChatIDs: [TransportChatID(rawValue: chatID)]
             )
-            let summary = try await ingestor.run()
+            let summary = try await ingestor.run { progress in
+                print(
+                    "Scanned \(progress.scanned) messages; "
+                        + "indexed \(progress.indexed); cursor \(progress.cursor.rawValue)."
+                )
+            }
             print(
                 "Indexed \(summary.indexed) of \(summary.scanned) messages "
                     + "across \(summary.pages) page(s); cursor \(summary.cursor.rawValue)."
