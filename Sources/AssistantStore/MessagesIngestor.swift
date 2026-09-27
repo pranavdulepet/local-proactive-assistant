@@ -31,14 +31,10 @@ public struct MessagesIngestor: Sendable {
         self.excludedChatIDs = excludedChatIDs
     }
 
-    public func run(pageSize: Int = 500) async throws -> MessageIngestionSummary {
-        let chats = try await source.chats()
-        let allowedChatIDs = Set(
-            chats.lazy
-                .filter { !$0.isGroup && $0.service.caseInsensitiveCompare("iMessage") == .orderedSame }
-                .map(\.id)
-        ).subtracting(excludedChatIDs)
-
+    public func run(
+        pageSize: Int = 500,
+        onProgress: (@Sendable (MessageIngestionSummary) -> Void)? = nil
+    ) async throws -> MessageIngestionSummary {
         let savedCursor = try await store.sourceCursor(for: .messages)
         if let savedCursor, Int64(savedCursor) == nil {
             throw ObservationStoreFailure("Stored Messages cursor is not an integer")
@@ -61,7 +57,9 @@ public struct MessagesIngestor: Sendable {
 
             let observations = page.messages.compactMap { message -> Observation? in
                 let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard allowedChatIDs.contains(message.chatID), !message.isGroup, !text.isEmpty else {
+                guard !excludedChatIDs.contains(message.chatID),
+                      !message.isGroup,
+                      !text.isEmpty else {
                     return nil
                 }
                 return Self.observation(for: message)
@@ -75,18 +73,18 @@ public struct MessagesIngestor: Sendable {
             pages += 1
             scanned += page.messages.count
             cursor = page.nextCursor
+            let summary = MessageIngestionSummary(
+                pages: pages,
+                scanned: scanned,
+                indexed: indexed,
+                cursor: cursor
+            )
+            onProgress?(summary)
 
             if !page.hasMore {
-                break
+                return summary
             }
         }
-
-        return MessageIngestionSummary(
-            pages: pages,
-            scanned: scanned,
-            indexed: indexed,
-            cursor: cursor
-        )
     }
 
     private static func observation(for message: HistoricalMessage) -> Observation {

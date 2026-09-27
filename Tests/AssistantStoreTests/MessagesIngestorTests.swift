@@ -5,15 +5,8 @@ import Testing
 
 struct MessagesIngestorTests {
     @Test
-    func indexesOnlyDirectIMessagesAndAdvancesTheAuthoritativeCursor() async throws {
-        let chats = [
-            chat(id: 1, service: "iMessage"),
-            chat(id: 2, service: "SMS"),
-            chat(id: 3, service: "iMessage", isGroup: true),
-            chat(id: 4, service: "iMessage"),
-        ]
+    func indexesOnlyDirectMessagesAndAdvancesTheAuthoritativeCursor() async throws {
         let source = FakeMessageHistorySource(
-            chats: chats,
             pages: [
                 MessageHistoryPage(
                     messages: [
@@ -41,21 +34,23 @@ struct MessagesIngestorTests {
             store: store,
             excludedChatIDs: [TransportChatID(rawValue: 4)]
         )
+        let progress = ProgressRecorder()
 
-        let summary = try await ingestor.run(pageSize: 100)
+        let summary = try await ingestor.run(pageSize: 100) { progress.append($0) }
 
         #expect(summary == MessageIngestionSummary(
             pages: 2,
             scanned: 6,
-            indexed: 2,
+            indexed: 3,
             cursor: TransportCursor(rawValue: 90)
         ))
         #expect(await source.requests() == [
             Request(cursor: 0, limit: 100),
             Request(cursor: 50, limit: 100),
         ])
+        #expect(progress.values().map(\.cursor.rawValue) == [50, 90])
         #expect(try await store.sourceCursor(for: .messages) == "90")
-        #expect(try await store.current(source: .messages, externalID: "sms") == nil)
+        #expect(try await store.current(source: .messages, externalID: "sms")?.text == "SMS")
         #expect(try await store.current(source: .messages, externalID: "group") == nil)
         #expect(try await store.current(source: .messages, externalID: "control") == nil)
         #expect(try await store.current(source: .messages, externalID: "blank") == nil)
@@ -70,7 +65,6 @@ struct MessagesIngestorTests {
     @Test
     func resumesFromTheStoredCursorAndPersistsEmptyPages() async throws {
         let source = FakeMessageHistorySource(
-            chats: [chat(id: 1, service: "iMessage")],
             pages: [
                 MessageHistoryPage(
                     messages: [],
@@ -88,18 +82,6 @@ struct MessagesIngestorTests {
         #expect(summary.cursor.rawValue == 75)
         #expect(summary.indexed == 0)
         #expect(try await store.sourceCursor(for: .messages) == "75")
-    }
-
-    private func chat(id: Int64, service: String, isGroup: Bool = false) -> TransportChat {
-        TransportChat(
-            id: TransportChatID(rawValue: id),
-            identifier: "chat-\(id)",
-            guid: "guid-\(id)",
-            displayName: "Chat \(id)",
-            service: service,
-            participants: ["person@example.com"],
-            isGroup: isGroup
-        )
     }
 
     private func message(
@@ -128,18 +110,29 @@ private struct Request: Equatable, Sendable {
     let limit: Int
 }
 
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var summaries: [MessageIngestionSummary] = []
+
+    func append(_ summary: MessageIngestionSummary) {
+        lock.lock()
+        summaries.append(summary)
+        lock.unlock()
+    }
+
+    func values() -> [MessageIngestionSummary] {
+        lock.lock()
+        defer { lock.unlock() }
+        return summaries
+    }
+}
+
 private actor FakeMessageHistorySource: MessageHistorySource {
-    private let availableChats: [TransportChat]
     private var remainingPages: [MessageHistoryPage]
     private var receivedRequests: [Request] = []
 
-    init(chats: [TransportChat], pages: [MessageHistoryPage]) {
-        availableChats = chats
+    init(pages: [MessageHistoryPage]) {
         remainingPages = pages
-    }
-
-    func chats() async throws -> [TransportChat] {
-        availableChats
     }
 
     func messages(

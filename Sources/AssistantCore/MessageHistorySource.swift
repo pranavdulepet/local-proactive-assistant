@@ -48,7 +48,6 @@ public struct MessageHistoryPage: Equatable, Sendable {
 }
 
 public protocol MessageHistorySource: Sendable {
-    func chats() async throws -> [TransportChat]
     func messages(
         after cursor: TransportCursor,
         limit: Int

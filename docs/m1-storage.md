@@ -13,7 +13,7 @@ Milestone 1 establishes one local evidence path for Messages, Calendar, and Cont
 - WAL mode and owner-only filesystem permissions for file-backed stores;
 - resumable, read-only Messages catch-up through `imsg messages.after`;
 - atomic observation and source-cursor commits, including empty pages;
-- one-to-one iMessage filtering with the control chat excluded;
+- one-to-one iMessage and SMS filtering with groups and the control chat excluded;
 - owner, known-external, and unknown-external trust labels.
 
 An observation records source text and provenance. It does not represent a trusted fact, commitment, preference, or assistant policy. Those require deterministic routing or a later typed assertion step.
