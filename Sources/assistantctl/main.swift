@@ -1,0 +1,108 @@
+import AssistantCore
+import Darwin
+import Foundation
+import IMsgTransport
+
+@main
+struct AssistantCLI {
+    static func main() async {
+        do {
+            try await run()
+        } catch {
+            FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+            exit(1)
+        }
+    }
+
+    private static func run() async throws {
+        var arguments = Array(CommandLine.arguments.dropFirst())
+        let executable = takeOption("--imsg", from: &arguments) ?? "imsg"
+        let transport = IMsgTransport(executable: executable)
+
+        guard let command = arguments.first else {
+            printUsage()
+            return
+        }
+        arguments.removeFirst()
+
+        switch command {
+        case "doctor":
+            let health = await transport.probe()
+            print("imsg: \(health.ready ? "ready" : "unavailable")")
+            if let version = health.version { print("version: \(version)") }
+            print(health.detail)
+            if !health.ready { exit(1) }
+
+        case "chats":
+            for chat in try await transport.chats() {
+                let kind = chat.isGroup ? "group" : "direct"
+                print("\(chat.id.rawValue)\t\(kind)\t\(chat.service)\t\(chat.displayName)")
+            }
+
+        case "echo":
+            guard let rawChatID = takeOption("--chat-id", from: &arguments),
+                  let chatID = Int64(rawChatID) else {
+                throw CLIError("echo requires --chat-id <positive integer>")
+            }
+            let after = takeOption("--after", from: &arguments).flatMap(Int64.init)
+            let ledgerURL = try defaultLedgerURL()
+            let ledger = try OutboundLedger(fileURL: ledgerURL)
+            let service = EchoService(transport: transport, ledger: ledger)
+
+            print("Watching chat \(chatID). Press Control-C to stop.")
+            for try await event in service.events(
+                chatID: TransportChatID(rawValue: chatID),
+                after: after.map { TransportCursor(rawValue: $0) }
+            ) {
+                switch event.decision {
+                case .accept:
+                    let guid = event.receipt?.messageGUID ?? "unverified"
+                    print("accepted row \(event.inbound.cursor.rawValue); sent \(guid)")
+                case .reject(let reason):
+                    print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
+                }
+            }
+
+        default:
+            throw CLIError("unknown command: \(command)")
+        }
+    }
+
+    private static func takeOption(_ name: String, from arguments: inout [String]) -> String? {
+        guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else {
+            return nil
+        }
+        let value = arguments[index + 1]
+        arguments.removeSubrange(index...(index + 1))
+        return value
+    }
+
+    private static func defaultLedgerURL() throws -> URL {
+        let root = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return root
+            .appendingPathComponent("LocalProactiveAssistant", isDirectory: true)
+            .appendingPathComponent("outbound-ledger.json")
+    }
+
+    private static func printUsage() {
+        print("""
+        Usage:
+          assistantctl doctor [--imsg <path>]
+          assistantctl chats [--imsg <path>]
+          assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
+        """)
+    }
+}
+
+private struct CLIError: Error, CustomStringConvertible {
+    let description: String
+
+    init(_ description: String) {
+        self.description = description
+    }
+}
