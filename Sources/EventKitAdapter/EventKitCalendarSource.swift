@@ -27,7 +27,15 @@ public actor EventKitCalendarSource: CalendarEventSource {
     }
 
     public func requestFullAccess() async throws -> Bool {
-        try await eventStore.requestFullAccessToEvents()
+        try await withCheckedThrowingContinuation { continuation in
+            eventStore.requestFullAccessToEvents { granted, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: granted)
+                }
+            }
+        }
     }
 
     public func events(from startDate: Date, to endDate: Date) -> [CalendarEventRecord] {
