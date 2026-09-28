@@ -284,6 +284,45 @@ public actor ObservationStore {
         }
     }
 
+    @discardableResult
+    public func replaceCommitments(
+        _ commitments: [CommitmentAssertion],
+        extractorID: String,
+        since: Date
+    ) throws -> CommitmentReconciliation {
+        guard commitments.allSatisfy({ $0.extractorID == extractorID }) else {
+            throw ObservationStoreFailure("Cannot reconcile commitments from another extractor")
+        }
+
+        try execute("BEGIN IMMEDIATE")
+        do {
+            var inserted = 0
+            for commitment in commitments {
+                if try insertCommitment(commitment) {
+                    inserted += 1
+                }
+                try insertCommitmentEvidence(commitment)
+            }
+
+            let currentIDs = Set(commitments.map(\.id))
+            let staleIDs = try activeCommitmentIDs(
+                extractorID: extractorID,
+                since: since
+            ).filter { !currentIDs.contains($0) }
+            for id in staleIDs {
+                try supersedeCommitment(id: id)
+            }
+            try execute("COMMIT")
+            return CommitmentReconciliation(
+                inserted: inserted,
+                superseded: staleIDs.count
+            )
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     public func openCommitments(limit: Int = 20) throws -> [CommitmentAssertion] {
         guard limit > 0 else { return [] }
         let statement = try prepare(
@@ -563,6 +602,51 @@ public actor ObservationStore {
         try bind(commitment.id, at: 1, to: statement)
         try bind(commitment.evidenceObservationID.uuidString, at: 2, to: statement)
         try step(statement, operation: "link commitment evidence")
+    }
+
+    private func activeCommitmentIDs(
+        extractorID: String,
+        since: Date
+    ) throws -> [String] {
+        let statement = try prepare(
+            """
+            SELECT id
+            FROM derived_assertions
+            WHERE predicate = ? AND status = ? AND extractor_id = ? AND created_at >= ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(AssertionPredicate.commitmentCreated.rawValue, at: 1, to: statement)
+        try bind(AssertionStatus.active.rawValue, at: 2, to: statement)
+        try bind(extractorID, at: 3, to: statement)
+        try bind(since.timeIntervalSince1970, at: 4, to: statement)
+
+        var ids: [String] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                ids.append(try text(at: 0, from: statement))
+            case SQLITE_DONE:
+                return ids
+            default:
+                throw failure("Could not read active commitments")
+            }
+        }
+    }
+
+    private func supersedeCommitment(id: String) throws {
+        let statement = try prepare(
+            """
+            UPDATE derived_assertions
+            SET status = ?
+            WHERE id = ? AND status = ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try bind(AssertionStatus.superseded.rawValue, at: 1, to: statement)
+        try bind(id, at: 2, to: statement)
+        try bind(AssertionStatus.active.rawValue, at: 3, to: statement)
+        try step(statement, operation: "supersede commitment")
     }
 
     private func saveCursor(_ cursor: String, for source: ObservationSource) throws {

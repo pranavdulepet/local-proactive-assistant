@@ -34,7 +34,8 @@ Implemented now:
 - exact phone/email joins across contacts, events, and direct messages;
 - a deterministic meeting-context evidence query with explicit ambiguity errors.
 - typed commitment assertions linked to source evidence;
-- a narrow deterministic extractor for explicit, owner-authored, time-bound commitments;
+- a versioned deterministic extractor for explicit, actionable, owner-authored,
+  time-bound commitments;
 - open-commitment, evidence explanation, and explicit completion commands.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
@@ -93,7 +94,7 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Validate meeting-context and commitment evidence on the Mac.
+1. Validate the tightened commitment rule against real message history.
 2. Add `/why` in the owner control chat using the existing evidence path.
 3. Add one gated proactive commitment rule with a one-message-per-day ceiling.
 4. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.

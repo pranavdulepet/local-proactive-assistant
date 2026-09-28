@@ -28,7 +28,8 @@ Milestone 1 establishes one local evidence path for Messages, Calendar, and Cont
   limitations;
 - deterministic exact contact resolution and upcoming meeting-context evidence.
 - typed commitment assertions with source-observation evidence links;
-- a materialized open-commitment view and explicit completion state.
+- a materialized open-commitment view with explicit completion and extractor-revision
+  reconciliation state.
 
 An observation records source text and provenance. It does not represent a trusted fact, commitment, preference, or assistant policy. Those require deterministic routing or a later typed assertion step.
 
@@ -97,10 +98,13 @@ swift run assistantctl index-commitments --days 30
 swift run assistantctl forgetting
 ```
 
-The rule matches only `I'll`/`I’ll`/`I will` statements containing `today`, `tonight`,
-`tomorrow`, or `this morning/afternoon/evening`. Questions, negated statements, incoming
-messages, and statements without a supported time cue are excluded. This favors precision
-over recall and does not claim to detect completion automatically.
+The rule matches only actionable `I'll`/`I’ll`/`I will` statements containing `today`,
+`tonight`, `tomorrow`, or `this morning/afternoon/evening` in the committed clause.
+Questions, negated statements, incoming messages, availability statements, hedged intent,
+and statements without a supported time cue are excluded. This favors precision over recall
+and does not claim to detect completion automatically. Extractor revisions are versioned; a
+refresh atomically supersedes active results in the scanned window that the current revision
+no longer emits, while preserving explicit completion state and immutable evidence.
 
 Every listed item includes a stable ID. Inspect its source evidence or mark it complete with:
 
