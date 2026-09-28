@@ -203,7 +203,8 @@ struct AssistantCLI {
             print(
                 "Scanned \(summary.scanned) owner-authored messages since "
                     + "\(formatter.string(from: summary.since)); "
-                    + "matched \(summary.extracted); inserted \(summary.inserted)."
+                    + "matched \(summary.extracted); inserted \(summary.inserted); "
+                    + "superseded \(summary.superseded)."
             )
 
         case "forgetting":
@@ -222,7 +223,8 @@ struct AssistantCLI {
             }
             print(
                 "\nRule coverage: owner-authored direct messages containing "
-                    + "I’ll/I will plus today, tonight, tomorrow, or this morning/afternoon/evening."
+                    + "an actionable I’ll/I will statement plus today, tonight, tomorrow, "
+                    + "or this morning/afternoon/evening. Availability and hedged intent are excluded."
             )
             print("Completion is explicit; use complete-commitment after verifying an item is done.")
             if let coverage = try await store.sourceCoverage(for: .messages) {

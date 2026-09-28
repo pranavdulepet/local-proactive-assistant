@@ -7,6 +7,17 @@ public enum AssertionPredicate: String, Codable, Sendable {
 public enum AssertionStatus: String, Codable, Sendable {
     case active
     case completed
+    case superseded
+}
+
+public struct CommitmentReconciliation: Equatable, Sendable {
+    public let inserted: Int
+    public let superseded: Int
+
+    public init(inserted: Int, superseded: Int) {
+        self.inserted = inserted
+        self.superseded = superseded
+    }
 }
 
 public struct CommitmentAssertion: Codable, Equatable, Identifiable, Sendable {

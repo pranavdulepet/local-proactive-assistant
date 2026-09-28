@@ -3,7 +3,7 @@ import Foundation
 
 public struct DeterministicCommitmentExtractor: Sendable {
     public static let extractorID = "owner-future-time-cue"
-    public static let schemaVersion = "commitment.v1"
+    public static let schemaVersion = "commitment.v2"
     private static let expression = try! NSRegularExpression(
         pattern: #"\b(?:I['’]ll|I will)\s+([^.!?\n]+)([.!?]|$)"#,
         options: [.caseInsensitive]
@@ -32,8 +32,11 @@ public struct DeterministicCommitmentExtractor: Sendable {
                   text.substring(with: match.range(at: 2)) != "?" else { return nil }
             let action = text.substring(with: match.range(at: 1))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !action.lowercased().hasPrefix("not "),
-                  let due = dueWindow(in: action, relativeTo: sourceTimestamp) else {
+            guard isActionable(action),
+                  let due = dueWindow(
+                    in: committedClause(in: action),
+                    relativeTo: sourceTimestamp
+                  ) else {
                 return nil
             }
             let summary = text.substring(with: match.range(at: 0))
@@ -54,6 +57,29 @@ public struct DeterministicCommitmentExtractor: Sendable {
                 createdAt: sourceTimestamp
             )
         }
+    }
+
+    private func isActionable(_ action: String) -> Bool {
+        let lowercased = action.lowercased()
+        let rejectedPrefixes = [
+            "not ",
+            "try to ",
+            "try and ",
+            "maybe ",
+            "probably ",
+            "have time",
+            "be available",
+            "be free",
+        ]
+        return !rejectedPrefixes.contains { lowercased.hasPrefix($0) }
+    }
+
+    private func committedClause(in action: String) -> String {
+        let range = action.range(
+            of: #"\b(?:but|because|bc|although|though)\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return range.map { String(action[..<$0.lowerBound]) } ?? action
     }
 
     private func dueWindow(

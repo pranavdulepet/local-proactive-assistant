@@ -4,12 +4,20 @@ public struct CommitmentExtractionSummary: Equatable, Sendable {
     public let scanned: Int
     public let extracted: Int
     public let inserted: Int
+    public let superseded: Int
     public let since: Date
 
-    public init(scanned: Int, extracted: Int, inserted: Int, since: Date) {
+    public init(
+        scanned: Int,
+        extracted: Int,
+        inserted: Int,
+        superseded: Int,
+        since: Date
+    ) {
         self.scanned = scanned
         self.extracted = extracted
         self.inserted = inserted
+        self.superseded = superseded
         self.since = since
     }
 }
@@ -39,11 +47,16 @@ public struct CommitmentService: Sendable {
             limit: 100_000
         )
         let assertions = observations.flatMap(extractor.extract(from:))
-        let inserted = try await store.recordCommitments(assertions)
+        let reconciliation = try await store.replaceCommitments(
+            assertions,
+            extractorID: DeterministicCommitmentExtractor.extractorID,
+            since: since
+        )
         return CommitmentExtractionSummary(
             scanned: observations.count,
             extracted: assertions.count,
-            inserted: inserted,
+            inserted: reconciliation.inserted,
+            superseded: reconciliation.superseded,
             since: since
         )
     }

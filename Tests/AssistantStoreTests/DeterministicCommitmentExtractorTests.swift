@@ -46,6 +46,45 @@ struct DeterministicCommitmentExtractorTests {
         )
     }
 
+    @Test
+    func rejectsObservedAvailabilityAndHedgedIntentFalsePositives() {
+        let extractor = DeterministicCommitmentExtractor()
+        let falsePositives = [
+            "I’ll have time tmr I’m just tired today bc of red eye",
+            "I will try to leave by 8 smth today",
+        ]
+
+        for text in falsePositives {
+            #expect(
+                extractor.extract(
+                    from: message(text: text, trust: .ownerAuthored)
+                ).isEmpty
+            )
+        }
+    }
+
+    @Test
+    func keepsStrongCommitmentsAndIgnoresTimeCuesInExplanations() {
+        let extractor = DeterministicCommitmentExtractor()
+
+        #expect(
+            extractor.extract(
+                from: message(
+                    text: "I will finish re-writing the confusing parts of the paper manually by tonight and will do another pass tomorrow morning",
+                    trust: .ownerAuthored
+                )
+            ).count == 1
+        )
+        #expect(
+            extractor.extract(
+                from: message(
+                    text: "I’ll send it soon because I’m busy today",
+                    trust: .ownerAuthored
+                )
+            ).isEmpty
+        )
+    }
+
     private func message(
         text: String,
         trust: ObservationTrust,
