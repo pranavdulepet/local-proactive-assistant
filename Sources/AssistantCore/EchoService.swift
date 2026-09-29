@@ -20,7 +20,7 @@ public struct EchoService: Sendable {
     private let transport: any MessageTransport
     private let ledger: OutboundLedger
     private let cursorStore: CursorStore
-    private let reply: @Sendable (String) -> String
+    private let reply: @Sendable (String) async throws -> String?
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
     private let onReconnect: @Sendable (Int, TimeInterval, String) -> Void
 
@@ -28,7 +28,7 @@ public struct EchoService: Sendable {
         transport: any MessageTransport,
         ledger: OutboundLedger,
         cursorStore: CursorStore = CursorStore(),
-        reply: @escaping @Sendable (String) -> String = { "echo: \($0)" },
+        reply: @escaping @Sendable (String) async throws -> String? = { "echo: \($0)" },
         reconnectDelay: @escaping @Sendable (Int) -> TimeInterval = { attempt in
             min(pow(2, Double(attempt - 1)), 30)
         },
@@ -82,7 +82,23 @@ public struct EchoService: Sendable {
                                     continue
                                 }
 
-                                let outbound = OutboundTransportMessage(text: reply(message.text))
+                                guard let replyText = try await reply(message.text) else {
+                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
+                                    try await cursorStore.advance(
+                                        chatID: chatID,
+                                        to: message.cursor
+                                    )
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: .accept,
+                                            receipt: nil
+                                        )
+                                    )
+                                    continue
+                                }
+
+                                let outbound = OutboundTransportMessage(text: replyText)
                                 try await ledger.begin(
                                     requestID: outbound.requestID,
                                     chatID: chatID,

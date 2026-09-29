@@ -113,6 +113,18 @@ swift run assistantctl why --commitment <ID>
 swift run assistantctl complete-commitment --commitment <ID>
 ```
 
+Serve the same deterministic paths through the configured owner self-chat:
+
+```bash
+swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
+```
+
+The control chat accepts `/forgetting`, the exact natural-language question “What am I
+forgetting?”, `/why <ID>`, `/done <ID>`, and `/help`. `/why` formats the stored assertion,
+source excerpt, timestamp, conversation handle, locator, and current Messages coverage. It
+does not ask a model to invent an explanation. Messages that are not commands advance the
+durable cursor without receiving a reply.
+
 Existing Messages observations predate handle provenance. After upgrading, clear only the
 Messages source cursor and run the indexer once to append handle-aware versions while keeping
 the old observations:
