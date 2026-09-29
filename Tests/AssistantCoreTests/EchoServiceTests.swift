@@ -88,6 +88,32 @@ struct EchoServiceTests {
         #expect(cursor == TransportCursor(rawValue: 102))
     }
 
+    @Test
+    func checkpointsAcceptedMessagesWhenTheHandlerDoesNotReply() async throws {
+        let cursorStore = CursorStore()
+        let transport = ScriptedTransport(
+            steps: [.messages([message(cursor: 103, text: "note to self")])]
+        )
+        let service = EchoService(
+            transport: transport,
+            ledger: try OutboundLedger(),
+            cursorStore: cursorStore,
+            reply: { _ in nil }
+        )
+
+        var received: EchoEvent?
+        for try await event in service.events(chatID: chatID) {
+            received = event
+            break
+        }
+
+        let cursor = await cursorStore.cursor(for: chatID)
+        #expect(received?.decision == .accept)
+        #expect(received?.receipt == nil)
+        #expect(transport.sentMessages.isEmpty)
+        #expect(cursor == TransportCursor(rawValue: 103))
+    }
+
     private func message(
         cursor: Int64,
         text: String,
@@ -113,6 +139,7 @@ private final class ScriptedTransport: MessageTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var steps: [Step]
     private var cursors: [TransportCursor?] = []
+    private var messages: [OutboundTransportMessage] = []
 
     init(steps: [Step]) {
         self.steps = steps
@@ -120,6 +147,10 @@ private final class ScriptedTransport: MessageTransport, @unchecked Sendable {
 
     var requestedCursors: [TransportCursor?] {
         lock.withLock { cursors }
+    }
+
+    var sentMessages: [OutboundTransportMessage] {
+        lock.withLock { messages }
     }
 
     func probe() async -> TransportHealth {
@@ -158,6 +189,7 @@ private final class ScriptedTransport: MessageTransport, @unchecked Sendable {
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
     ) async throws -> SendReceipt {
+        lock.withLock { messages.append(message) }
         SendReceipt(
             requestID: message.requestID,
             messageGUID: UUID().uuidString,
