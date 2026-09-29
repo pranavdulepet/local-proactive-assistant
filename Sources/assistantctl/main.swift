@@ -85,6 +85,46 @@ struct AssistantCLI {
                 }
             }
 
+        case "serve":
+            guard let rawChatID = takeOption("--control-chat-id", from: &arguments),
+                  let chatID = Int64(rawChatID), chatID > 0 else {
+                throw CLIError("serve requires --control-chat-id <positive integer>")
+            }
+            let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
+            let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let handler = ControlCommandHandler(store: store)
+            let service = EchoService(
+                transport: transport,
+                ledger: ledger,
+                cursorStore: cursorStore,
+                reply: { text in try await handler.response(to: text) },
+                onReconnect: { attempt, delay, detail in
+                    print(
+                        "watch interrupted: \(detail) "
+                            + "reconnecting in \(Int(delay))s (attempt \(attempt))"
+                    )
+                }
+            )
+
+            let chat = TransportChatID(rawValue: chatID)
+            let resumeCursor = await cursorStore.cursor(for: chat)
+            print("Serving owner commands in chat \(chatID). Press Control-C to stop.")
+            if let resumeCursor {
+                print("Resuming after row \(resumeCursor.rawValue).")
+            }
+            for try await event in service.events(chatID: chat, after: resumeCursor) {
+                switch event.decision {
+                case .accept where event.receipt != nil:
+                    let guid = event.receipt?.messageGUID ?? "unverified"
+                    print("handled row \(event.inbound.cursor.rawValue); sent \(guid)")
+                case .accept:
+                    print("ignored row \(event.inbound.cursor.rawValue): not a command")
+                case .reject(let reason):
+                    print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
+                }
+            }
+
         case "index-messages":
             guard let rawChatID = takeOption("--control-chat-id", from: &arguments),
                   let chatID = Int64(rawChatID), chatID > 0 else {
@@ -303,6 +343,7 @@ struct AssistantCLI {
           assistantctl doctor [--imsg <path>]
           assistantctl chats [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
+          assistantctl serve --control-chat-id <id> [--imsg <path>]
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
           assistantctl index-calendar
           assistantctl index-contacts

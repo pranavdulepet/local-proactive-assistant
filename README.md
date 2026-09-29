@@ -36,7 +36,8 @@ Implemented now:
 - typed commitment assertions linked to source evidence;
 - a versioned deterministic extractor for explicit, actionable, owner-authored,
   time-bound commitments;
-- open-commitment, evidence explanation, and explicit completion commands.
+- open-commitment, evidence explanation, and explicit completion commands;
+- an owner-control service for `/forgetting`, `/why <id>`, and `/done <id>`.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -75,9 +76,12 @@ swift run assistantctl source-status
 swift run assistantctl meeting-context --person "<exact contact name>"
 swift run assistantctl index-commitments --days 30
 swift run assistantctl forgetting
+swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
-Only choose a private, one-to-one iMessage self-chat. The echo process never chooses a recipient; it can send only to the chat ID supplied at startup.
+Only choose a private, one-to-one iMessage self-chat. The echo and control services never
+choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat
+notes are checkpointed without a reply. Send `/help` in the control chat to list commands.
 
 The CLI stores its state under `~/Library/Application Support/LocalProactiveAssistant/`. A Messages restart resumes from the newer of its checkpoint and an optional `--after <ROW_ID>` value; it never rewinds a saved cursor. Calendar refreshes cover 90 days in the past through 365 days in the future and report that window after each run.
 
@@ -94,9 +98,9 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Validate the tightened commitment rule against real message history.
-2. Add `/why` in the owner control chat using the existing evidence path.
-3. Add one gated proactive commitment rule with a one-message-per-day ceiling.
+1. Validate the owner-control evidence commands on the physical self-chat.
+2. Add one gated proactive commitment rule with quiet hours and a one-message-per-day ceiling.
+3. Add `/pause` before enabling the proactive rule by default.
 4. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
 
 ## License
