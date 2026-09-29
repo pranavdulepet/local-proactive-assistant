@@ -190,7 +190,7 @@ private final class ScriptedTransport: MessageTransport, @unchecked Sendable {
         to chatID: TransportChatID
     ) async throws -> SendReceipt {
         lock.withLock { messages.append(message) }
-        SendReceipt(
+        return SendReceipt(
             requestID: message.requestID,
             messageGUID: UUID().uuidString,
             rowID: nil,
