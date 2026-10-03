@@ -9,7 +9,10 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-15
+    strategy:
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
       - name: Test

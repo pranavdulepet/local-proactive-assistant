@@ -9,15 +9,19 @@ let package = Package(
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "AssistantStore", targets: ["AssistantStore"]),
         .library(name: "LocalInference", targets: ["LocalInference"]),
+        .library(name: "AppleModelAdapter", targets: ["AppleModelAdapter"]),
         .library(name: "ContactsAdapter", targets: ["ContactsAdapter"]),
         .library(name: "EventKitAdapter", targets: ["EventKitAdapter"]),
         .library(name: "IMsgTransport", targets: ["IMsgTransport"]),
         .executable(name: "assistantctl", targets: ["assistantctl"]),
+        .executable(name: "assistant-model-worker", targets: ["assistant-model-worker"]),
     ],
     targets: [
         .systemLibrary(name: "CSQLite"),
         .target(name: "AssistantCore"),
         .target(name: "LocalInference"),
+        .target(name: "AppleModelAdapter", dependencies: ["LocalInference"]),
+        .executableTarget(name: "assistant-model-worker", dependencies: ["AppleModelAdapter", "LocalInference"]),
         .target(
             name: "AssistantStore",
             dependencies: ["AssistantCore", "CSQLite", "LocalInference"]
@@ -54,6 +58,10 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "AppleModelAdapterTests",
+            dependencies: ["AppleModelAdapter", "LocalInference"]
+        ),
+        .testTarget(
             name: "LocalInferenceTests",
             dependencies: ["LocalInference"]
         ),
@@ -63,7 +71,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AssistantStoreTests",
-            dependencies: ["AssistantCore", "AssistantStore"]
+            dependencies: ["AssistantCore", "AssistantStore", "LocalInference"]
         ),
         .testTarget(
             name: "IMsgTransportTests",
