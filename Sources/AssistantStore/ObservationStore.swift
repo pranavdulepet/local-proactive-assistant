@@ -397,6 +397,107 @@ public actor ObservationStore {
         return sqlite3_changes(database) == 1
     }
 
+    public func setProactivityPaused(_ paused: Bool) throws {
+        try execute("UPDATE proactivity_settings SET paused = \(paused ? 1 : 0) WHERE id = 1")
+    }
+
+    public func proactivityStatus() throws -> ProactivityStatus {
+        let statement = try prepare("SELECT paused, last_gate, checked_at FROM proactivity_settings WHERE id = 1")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw failure("Could not read proactivity settings") }
+        let delivery = try prepare("SELECT id || ': ' || outcome FROM proactive_deliveries ORDER BY reserved_at DESC LIMIT 1")
+        defer { sqlite3_finalize(delivery) }
+        let lastDelivery = sqlite3_step(delivery) == SQLITE_ROW ? try text(at: 0, from: delivery) : nil
+        return ProactivityStatus(
+            paused: sqlite3_column_int(statement, 0) == 1,
+            lastGate: try text(at: 1, from: statement),
+            checkedAt: optionalDate(at: 2, from: statement),
+            lastDelivery: lastDelivery
+        )
+    }
+
+    /// The budget, evidence check, audit decision and reservation share one SQLite transaction.
+    public func reserveDueReminder(now: Date, calendar: Calendar) throws -> ReminderReservation? {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let reservation = try reserveDueReminderInsideTransaction(now: now, calendar: calendar)
+            try execute("COMMIT")
+            return reservation
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func reserveDueReminderInsideTransaction(now: Date, calendar: Calendar) throws -> ReminderReservation? {
+        if try proactivityStatus().paused {
+            try saveProactiveGate("paused", at: now)
+            return nil
+        }
+        let components = calendar.dateComponents([.era, .year, .month, .day], from: now)
+        let day = "\(components.era ?? 1)-\(components.year!)-\(components.month!)-\(components.day!)"
+        let budget = try prepare("SELECT 1 FROM proactive_deliveries WHERE local_day = ? OR reserved_at > ? LIMIT 1")
+        defer { sqlite3_finalize(budget) }
+        try bind(day, at: 1, to: budget)
+        try bind(now.addingTimeInterval(-86_400).timeIntervalSince1970, at: 2, to: budget)
+        if sqlite3_step(budget) == SQLITE_ROW {
+            try saveProactiveGate("dailyBudget", at: now)
+            return nil
+        }
+        let candidates = try prepare("SELECT id FROM open_commitments WHERE due_at >= ? AND due_at <= ? ORDER BY due_at, id")
+        defer { sqlite3_finalize(candidates) }
+        try bind(now.timeIntervalSince1970, at: 1, to: candidates)
+        try bind(now.addingTimeInterval(10_800).timeIntervalSince1970, at: 2, to: candidates)
+        let coverage = try sourceCoverage(for: .messages)
+        var lastGate = "noDueCommitment"
+        while sqlite3_step(candidates) == SQLITE_ROW {
+            let id = try text(at: 0, from: candidates)
+            guard let evidence = try commitmentEvidence(id: id) else { continue }
+            let currentID = try current(source: .messages, externalID: evidence.observation.externalID)?.id
+            if let gate = DueCommitmentRule.gate(evidence: evidence, coverage: coverage, currentObservationID: currentID, now: now, calendar: calendar) {
+                lastGate = gate
+                continue
+            }
+            let repeated = try prepare("SELECT 1 FROM proactive_deliveries WHERE evidence_key = ? LIMIT 1")
+            defer { sqlite3_finalize(repeated) }
+            try bind(evidence.observation.externalID, at: 1, to: repeated)
+            if sqlite3_step(repeated) == SQLITE_ROW {
+                lastGate = "duplicateEvidence"
+                continue
+            }
+            let reservation = ReminderReservation(id: UUID(), commitmentID: id)
+            let insert = try prepare("INSERT INTO proactive_deliveries (id, commitment_id, evidence_key, local_day, reserved_at, outcome) VALUES (?, ?, ?, ?, ?, 'reserved')")
+            defer { sqlite3_finalize(insert) }
+            try bind(reservation.id.uuidString, at: 1, to: insert)
+            try bind(id, at: 2, to: insert)
+            try bind(evidence.observation.externalID, at: 3, to: insert)
+            try bind(day, at: 4, to: insert)
+            try bind(now.timeIntervalSince1970, at: 5, to: insert)
+            try step(insert, operation: "reserve proactive reminder")
+            try saveProactiveGate("reserved:\(id)", at: now)
+            return reservation
+        }
+        try saveProactiveGate(lastGate, at: now)
+        return nil
+    }
+
+    public func finishReminder(id: UUID, outcome: String, messageGUID: String?) throws {
+        let statement = try prepare("UPDATE proactive_deliveries SET outcome = ?, message_guid = ? WHERE id = ? AND outcome = 'reserved'")
+        defer { sqlite3_finalize(statement) }
+        try bind(outcome, at: 1, to: statement)
+        try bind(messageGUID, at: 2, to: statement)
+        try bind(id.uuidString, at: 3, to: statement)
+        try step(statement, operation: "record proactive submission")
+    }
+
+    private func saveProactiveGate(_ gate: String, at now: Date) throws {
+        let statement = try prepare("UPDATE proactivity_settings SET last_gate = ?, checked_at = ? WHERE id = 1")
+        defer { sqlite3_finalize(statement) }
+        try bind(gate, at: 1, to: statement)
+        try bind(now.timeIntervalSince1970, at: 2, to: statement)
+        try step(statement, operation: "audit proactive gate")
+    }
+
     @discardableResult
     public func refreshCoverage(
         for source: ObservationSource,
@@ -951,6 +1052,25 @@ public actor ObservationStore {
     private static let schema = """
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
+
+    CREATE TABLE IF NOT EXISTS proactivity_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+        last_gate TEXT NOT NULL,
+        checked_at REAL
+    );
+    INSERT OR IGNORE INTO proactivity_settings (id, paused, last_gate) VALUES (1, 1, 'notEvaluated');
+
+    CREATE TABLE IF NOT EXISTS proactive_deliveries (
+        id TEXT PRIMARY KEY,
+        commitment_id TEXT NOT NULL,
+        evidence_key TEXT NOT NULL UNIQUE,
+        local_day TEXT NOT NULL UNIQUE,
+        reserved_at REAL NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('reserved', 'submitted', 'unknown')),
+        message_guid TEXT
+    );
 
     CREATE TABLE IF NOT EXISTS observations (
         id TEXT PRIMARY KEY,

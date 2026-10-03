@@ -25,6 +25,28 @@ public struct ControlCommandHandler: Sendable {
                 return "No active commitment found for [\(id)]."
             }
             return "Completed commitment [\(id)]."
+        case .pause:
+            try await store.setProactivityPaused(true)
+            return "Proactive reminders paused. Owner commands still work."
+        case .resume:
+            try await store.setProactivityPaused(false)
+            return "Proactive reminders enabled: at most one per day, quiet hours 10 PM–8 AM, no repeats."
+        case .status:
+            let status = try await store.proactivityStatus()
+            var lines = ["Proactive reminders: \(status.paused ? "paused" : "enabled").", "Last gate: \(status.lastGate)."]
+            if let delivery = status.lastDelivery { lines.append("Last submission: \(delivery) (not a delivery confirmation).") }
+            lines.append(contentsOf: try await coverageLines())
+            return lines.joined(separator: "\n")
+        case .meeting(let person):
+            do {
+                let evidence = try await MeetingContextService(store: store, clock: clock).evidence(for: person)
+                var lines = ["Upcoming meeting:", evidence.meeting.text, "Source: \(evidence.meeting.locator)", "Recent direct messages:"]
+                lines += evidence.recentMessages.map { "\(Self.timestamp($0.sourceTimestamp ?? $0.observedAt)): \(Self.excerpt($0.text)) [\($0.locator)]" }
+                lines += evidence.coverage.map { "\($0.source.rawValue): \($0.status.rawValue), synced \(Self.timestamp($0.lastSuccessfulSync))" }
+                return lines.joined(separator: "\n")
+            } catch let failure as MeetingContextFailure {
+                return failure.description
+            }
         case .help:
             return Self.help
         case .invalid(let usage):
@@ -106,6 +128,10 @@ public struct ControlCommandHandler: Sendable {
     /forgetting — list open commitments
     /why <id> — show the stored evidence for a commitment
     /done <id> — mark a commitment complete
+    /meeting <exact person> — meeting context from indexed evidence
+    /pause — stop unsolicited reminders
+    /resume — enable the one-per-day due-commitment rule
+    /status — show proactive policy and Messages coverage
     /help — show these commands
     """
 }
@@ -114,6 +140,10 @@ private enum Command: Equatable {
     case forgetting
     case why(String)
     case done(String)
+    case meeting(String)
+    case pause
+    case resume
+    case status
     case help
     case invalid(String)
 
@@ -147,6 +177,11 @@ private enum Command: Equatable {
                 ?? .invalid("Usage: /done <commitment-id>")
         case "/help":
             self = .help
+        case "/pause": self = .pause
+        case "/resume": self = .resume
+        case "/status": self = .status
+        case "/meeting":
+            self = argument.map(Self.meeting) ?? .invalid("Usage: /meeting <exact person>")
         default:
             self = .invalid("Unknown command. Send /help for available commands.")
         }
