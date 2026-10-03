@@ -37,14 +37,15 @@ An observation records source text and provenance. It does not represent a trust
 
 - Calendar deletion reconciliation and coverage outside the bounded scan window;
 - model-based commitment extraction and automatic completion detection;
-- model inference;
+- model-based commitment extraction beyond the separately added grounded-answer pilot;
 - Mail and embeddings.
 
 ## Host checkpoint
 
 The owner-control routes, opt-in proactive rule and automatic refresh are implemented.
-The deterministic commitment path remains separate from meeting-context evidence. The next
-planned slice is Mac local-model evaluation, not new source scaffolding. See [m1-host.md](m1-host.md).
+The deterministic commitment path remains separate from meeting-context evidence and model
+generation. Grounded local answers now consume bounded current-head evidence through the
+separate [local-model pilot](local-models.md). See [m1-host.md](m1-host.md) for host policy.
 
 Run a Messages catch-up manually with:
 

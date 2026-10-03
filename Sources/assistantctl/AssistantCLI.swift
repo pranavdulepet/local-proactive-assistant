@@ -5,6 +5,8 @@ import Darwin
 import EventKitAdapter
 import Foundation
 import IMsgTransport
+import LocalInference
+import MacModelBridge
 
 @main
 struct AssistantCLI {
@@ -29,6 +31,48 @@ struct AssistantCLI {
         arguments.removeFirst()
 
         switch command {
+        case "model-status":
+            let provider = MacModelProvider()
+            let state = await provider.availability()
+            print("\(provider.modelID): \(state.ready ? "ready" : "unavailable")")
+            print(state.detail)
+            if !state.ready { exit(1) }
+
+        case "ask", "export-context":
+            guard let question = takeOption("--question", from: &arguments) else {
+                throw CLIError("\(command) requires --question <question>")
+            }
+            let person = takeOption("--person", from: &arguments)
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let request = try await EvidenceRetriever(store: store).request(question: question, meetingPerson: person)
+            if command == "ask" {
+                let result = try await AnswerService(provider: MacModelProvider()).answer(request)
+                print(result.text)
+            } else {
+                guard let path = takeOption("--output", from: &arguments) else {
+                    throw CLIError("export-context requires --output <file.lpa-context>")
+                }
+                let url = URL(fileURLWithPath: path)
+                try ContextDocument.encode(request).write(to: url, options: [.atomic])
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+                print("Exported \(request.records.count) bounded records to \(url.path). This is a snapshot, not live sync.")
+            }
+
+        case "model-eval":
+            let provider = MacModelProvider()
+            let state = await provider.availability()
+            guard state.ready else { throw CLIError(state.detail) }
+            let request = EvidenceRequest(question: "What is the demo project deadline?", createdAt: Date(), records: [
+                EvidenceRecord(id: "demo1", source: "demo", timestamp: nil, text: "The demo project deadline is Friday at 5 PM.", locator: "public demo fixture", trust: "ownerAuthored")
+            ], coverage: ["Synthetic public fixture only; no personal data."])
+            let start = Date()
+            let answer = try await provider.answer(request)
+            try answer.validate(for: request)
+            guard !answer.insufficientEvidence else { throw CLIError("Model abstained on the supported demo fixture.") }
+            print("Bounded output and citation checks passed in \(String(format: "%.1f", Date().timeIntervalSince(start)))s.")
+            for claim in answer.claims { print("\(claim.text) [\(claim.evidenceIDs.joined(separator: ", "))]") }
+            print("Review whether the claim accurately preserves Friday at 5 PM. Citation validation alone does not prove factual support.")
+
         case "doctor":
             let health = await transport.probe()
             print("imsg: \(health.ready ? "ready" : "unavailable")")
@@ -86,6 +130,8 @@ struct AssistantCLI {
             }
 
         case "serve":
+            let model = takeOption("--model", from: &arguments)
+            guard model == nil || model == "apple" else { throw CLIError("The supported local model is --model apple.") }
             guard let rawChatID = takeOption("--control-chat-id", from: &arguments),
                   let chatID = Int64(rawChatID), chatID > 0 else {
                 throw CLIError("serve requires --control-chat-id <positive integer>")
@@ -101,7 +147,14 @@ struct AssistantCLI {
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
             try await store.recoverInterruptedReminders()
-            let handler = ControlCommandHandler(store: store)
+            let conversation = model == "apple" ? ModelConversationService(
+                store: store, provider: MacModelProvider(), transport: transport, ledger: ledger, chatID: chat
+            ) : nil
+            let answerQuestion: (@Sendable (String) async -> String)?
+            if let conversation {
+                answerQuestion = { question in await conversation.begin(question: question) }
+            } else { answerQuestion = nil }
+            let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
             let service = EchoService(
                 transport: transport,
                 ledger: ledger,
@@ -118,6 +171,7 @@ struct AssistantCLI {
             let resumeCursor = await cursorStore.cursor(for: chat)
             print("Serving owner commands in chat \(chatID). Press Control-C to stop.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
+            if model != nil { print("Local evidence answers enabled: send /ask <question>. Model output cannot change proactive policy.") }
             if let resumeCursor {
                 print("Resuming after row \(resumeCursor.rawValue).")
             }
@@ -126,7 +180,8 @@ struct AssistantCLI {
                 contacts: ContactsStoreSource(), store: store, controlChatID: chat
             )
             let reminders = ProactiveReminderService(store: store, transport: transport, ledger: ledger)
-            try await withThrowingTaskGroup(of: Void.self) { group in
+            do {
+              try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
                     for try await event in service.events(chatID: chat, after: resumeCursor) {
                         switch event.decision {
@@ -162,7 +217,12 @@ struct AssistantCLI {
                 }
                 defer { group.cancelAll() }
                 try await group.next()
+              }
+            } catch {
+                await conversation?.cancel()
+                throw error
             }
+            await conversation?.cancel()
 
         case "proactive-status", "pause", "resume":
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
@@ -389,7 +449,11 @@ struct AssistantCLI {
           assistantctl doctor [--imsg <path>]
           assistantctl chats [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
-          assistantctl serve --control-chat-id <id> [--imsg <path>]
+          assistantctl serve --control-chat-id <id> [--model apple] [--imsg <path>]
+          assistantctl model-status
+          assistantctl model-eval
+          assistantctl ask --question <question> [--person <exact person>]
+          assistantctl export-context --question <question> [--person <exact person>] --output <file.lpa-context>
           assistantctl proactive-status
           assistantctl pause
           assistantctl resume

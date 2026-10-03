@@ -2,9 +2,17 @@
 
 A local-first macOS assistant that tracks loose ends and eventually sends a small number of evidence-backed iMessages. Personal-source indexing and model inference stay on user-controlled Apple hardware.
 
-This repository started with the fragile part: a reliable self-chat transport loop. It now has local observation storage plus read-only Messages, Calendar, and Contacts ingestion, but no model runtime, phone app, or autonomous action layer.
+This repository started with a reliable self-chat transport loop. It now has read-only
+Messages, Calendar and Contacts ingestion, bounded on-device answers on the Mac, and a native
+iPhone app with the same model contract. Apple’s system model is the first runtime, as planned.
+External action tools are absent.
 
-## Current milestone: M1 thin vertical slice
+## Current stage: local-model pilot on Mac and iPhone
+
+For the shortest setup path, see [docs/local-models.md](docs/local-models.md): install the
+Mac worker, check the local model, ask an indexed question, then run the iPhone app from Xcode.
+The core host still runs on macOS 14+; model inference needs an Apple Intelligence-capable
+device, macOS/iOS 26+, Apple Intelligence enabled, and Xcode 26+ to build.
 
 The first slice:
 
@@ -40,6 +48,12 @@ Implemented now:
 - an owner-control service for evidence, completion, meeting context, pause and status;
 - automatic, independent source refresh in a single supervised host;
 - one opt-in due-commitment reminder rule with persistent reservations and gate audits.
+- a small `LocalModelProvider` contract, bounded evidence documents and validated citation IDs;
+- Apple on-device structured generation with deterministic evidence-only fallback;
+- a signed sandboxed Mac model worker, question CLI and nonblocking `/ask` owner commands;
+- a native iPhone app for phone-local questions and explicit Mac context snapshot import;
+- explicit phone Calendar/Contacts access and optional derived HealthKit sleep context;
+- macOS tests, worker isolation checks and simulator/device iOS builds in CI.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -108,20 +122,20 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Evaluate the Mac local-model provider on the existing evidence path, starting with Apple's
-   system model when available. Model output never chooses a recipient or bypasses gates.
+1. Run the local-model pilot on physical Mac and iPhone hardware. Review claim support,
+   latency, abstention and offline behavior before enabling broader AI extraction.
 2. Dogfood the narrow assistant and measure grounded-answer quality and interruption usefulness
    before expanding sources, models or proactive rules.
 3. Ship signed native host/login-item support for unattended use; do not substitute shell
    LaunchAgent installation for the planned application lifecycle.
-4. Build the later physical-iPhone companion milestone: pairing, bounded derived-event queue,
-   HTTPS sync and freshness, HealthKit, then optional location. Phone-local inference is a
-   separate evaluated addition, not required for the current iMessage control surface.
+4. Finish the later phone connectivity milestone: authenticated pairing, bounded derived-event
+   queue, HTTPS sync and freshness, then optional location. The current phone app runs its own
+   local model and reads explicitly enabled local sources; context import is a manual snapshot.
 
 Mail, broad Messages reconciliation, embeddings and additional model runtimes remain later
 work, not prerequisites silently added to M1. A second `platform-imessage` adapter is justified
-only by a measured transport gap. The M1 infrastructure is now at the Mac LLM integration
-boundary; no model runtime or phone companion has been added yet.
+only by a measured transport gap. MLX/llama.cpp and embeddings remain evaluation-driven
+additions. This pilot does not claim background phone sync or unattended host lifecycle.
 
 ## License
 

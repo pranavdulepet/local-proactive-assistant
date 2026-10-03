@@ -4,19 +4,29 @@ import Foundation
 public struct ControlCommandHandler: Sendable {
     private let store: ObservationStore
     private let clock: @Sendable () -> Date
+    private let answerQuestion: (@Sendable (String) async -> String)?
 
     public init(
         store: ObservationStore,
-        clock: @escaping @Sendable () -> Date = Date.init
+        clock: @escaping @Sendable () -> Date = Date.init,
+        answerQuestion: (@Sendable (String) async -> String)? = nil
     ) {
         self.store = store
         self.clock = clock
+        self.answerQuestion = answerQuestion
     }
 
     public func response(to text: String) async throws -> String? {
-        guard let command = Command(text) else { return nil }
+        guard let command = Command(text) else {
+            let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard question.hasSuffix("?"), let answerQuestion else { return nil }
+            return await answerQuestion(question)
+        }
 
         switch command {
+        case .ask(let question):
+            guard let answerQuestion else { return "Local answers are disabled. Start serve with --model apple after running scripts/setup-local-model.sh." }
+            return await answerQuestion(question)
         case .forgetting:
             return try await forgettingResponse()
         case .why(let id):
@@ -139,6 +149,7 @@ public struct ControlCommandHandler: Sendable {
     /why <id> — show the stored evidence for a commitment
     /done <id> — mark a commitment complete
     /meeting <exact person> — meeting context from indexed evidence
+    /ask <question> — answer from bounded indexed evidence when the local model is enabled
     /pause — stop unsolicited reminders
     /resume — enable the one-per-day due-commitment rule
     /status — show proactive policy and Messages coverage
@@ -147,6 +158,7 @@ public struct ControlCommandHandler: Sendable {
 }
 
 private enum Command: Equatable {
+    case ask(String)
     case forgetting
     case why(String)
     case done(String)
@@ -177,6 +189,8 @@ private enum Command: Equatable {
             : nil
 
         switch name {
+        case "/ask":
+            self = argument.map(Self.ask) ?? .invalid("Usage: /ask <question>")
         case "/forgetting":
             self = .forgetting
         case "/why":

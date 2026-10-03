@@ -1,7 +1,8 @@
 # Supervised M1 host
 
-This completes the pre-model M1 infrastructure. It does not add a model, phone app, background
-installation, or new data source. The validated iMessage surface remains the phone interface.
+This describes the deterministic M1 host. Its policy and evidence paths remain independent of
+the separately added [local-model pilot](local-models.md). The iMessage surface works alongside
+the native phone app; this is still a supervised foreground host.
 
 ## Run
 
@@ -31,6 +32,7 @@ terminates their child. The watch retains the existing reconnect/resume behavior
 | `/why <id>` | Immutable evidence and latest candidate gate evaluations |
 | `/done <id>` | Explicitly complete an open commitment |
 | `/meeting <exact person>` | Next indexed meeting and ten genuinely newest direct messages |
+| `/ask <question>` | Bounded grounded answer when `serve --model apple` is enabled |
 | `/pause` | Persistently stop unsolicited reminders; commands still work |
 | `/resume` | Opt in to the one due-commitment rule |
 | `/status` | Policy state, last gate/submission, and source freshness |
@@ -65,8 +67,9 @@ over exactly-once delivery. `/why` shows the candidate-specific gate decisions.
 
 ## Focused physical smoke test
 
-The prior self-chat validation remains accepted. This new host/policy path still needs a device
-smoke test; CI cannot exercise private macOS permissions or actual iMessage delivery.
+The prior self-chat and host/policy validation remain accepted. These steps are the repeatable
+smoke procedure for changes to this path; CI cannot exercise private macOS permissions or actual
+iMessage delivery. Real-device local-model checks are listed separately in local-models.md.
 
 1. Start `serve`; `/status` should show paused on first use and increasingly fresh source syncs.
 2. `/resume`, `/pause`, ordinary notes and `/meeting <exact person>` should leave the listener
@@ -85,16 +88,17 @@ echo suppression, source failure isolation, refresh cadence and helper deadlines
 ## What “usable” means next
 
 The narrow deterministic assistant is usable now through iMessage while the foreground host
-is running. Mac local-model integration is the next development boundary: bounded evidence
-input, typed output, unavailable-model fallback, evaluation, and no transport/policy authority
-inside inference. It is not a license for autonomous external actions.
+is running. The Mac local-model pilot now adds bounded evidence input, typed output,
+unavailable-model fallback and evaluation. Inference has no transport/policy authority and
+does not enable autonomous external actions.
 
 After model and device validation, start supervised dogfooding. Reliable unattended daily use
 still requires signed native application/login-item lifecycle and ongoing transport soak tests.
 Messages edits/deletions/groups/attachments and Calendar deletions are explicitly incomplete;
 no answer should imply complete coverage.
 
-The phone companion remains its later planned milestone: physical-device HealthKit access,
+The phone pilot now supports its own on-device model, read-only Calendar/Contacts, optional
+derived sleep context and manual Mac snapshots. Live phone connectivity remains later work:
 bounded derived-event queue, pairing, HTTPS sync/freshness, and optional location. No raw health
-or location data is sent through iMessage. Phone-local inference and optional Mac MLX,
-embeddings or rankers should be added only for a measured workload—not as prerequisite scaffolding.
+or location data is sent through iMessage. Optional Mac MLX, embeddings or rankers should be
+added only for a measured workload.

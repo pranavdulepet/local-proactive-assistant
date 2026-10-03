@@ -9,8 +9,36 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
       - name: Test
         run: swift test
+      - name: Install and probe sandboxed model worker
+        if: matrix.runner == 'macos-26'
+        run: |
+          ./scripts/setup-local-model.sh
+          ./scripts/check-model-worker.sh
+  phone:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build iPhone app for Simulator
+        run: >-
+          xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
+          -scheme AssistantPhone -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+      - name: Build iPhone app for device
+        run: >-
+          xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
+          -scheme AssistantPhone -destination 'generic/platform=iOS'
+          -derivedDataPath DerivedDataDevice CODE_SIGNING_ALLOWED=NO build
+      - name: Run phone demo smoke test
+        run: >-
+          xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
+          -scheme AssistantPhone -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest,arch=arm64'
+          -derivedDataPath DerivedDataUITest CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES test
