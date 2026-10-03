@@ -3,5 +3,8 @@
 .build/
 .swiftpm/
 DerivedData/
+DerivedDataDevice/
+xcuserdata/
+*.lpa-context
 *.xcuserstate
 .cli.history.json
