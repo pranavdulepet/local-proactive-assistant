@@ -66,7 +66,7 @@ struct AssistantView: View {
                     Section { Text(model.notice).font(.subheadline) }
                 }
                 if !model.answer.isEmpty {
-                    Section("Answer and source coverage") { Text(model.answer).textSelection(.enabled) }
+                    Section("Answer and source coverage") { Text(model.answer).textSelection(.enabled).accessibilityIdentifier("localAnswer") }
                 }
                 if let evidence = model.evidence {
                     Section("Evidence supplied to the model") {

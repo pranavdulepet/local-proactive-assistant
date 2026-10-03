@@ -32,6 +32,7 @@ public actor AppleSystemModelProvider: LocalModelProvider {
     }
 
     public func answer(_ request: EvidenceRequest) async throws -> GroundedAnswer {
+        try Task.checkCancellation()
         try request.validate()
         guard !generating else { throw LocalModelFailure("The local model is already answering a question.") }
         guard availability().ready else { throw LocalModelFailure(availability().detail) }
@@ -59,6 +60,7 @@ public actor AppleSystemModelProvider: LocalModelProvider {
                 generating: GeneratedAnswer.self,
                 options: GenerationOptions(temperature: 0, maximumResponseTokens: 600)
             )
+            try Task.checkCancellation()
             let answer = GroundedAnswer(
                 insufficientEvidence: response.content.insufficientEvidence,
                 claims: response.content.claims.map {

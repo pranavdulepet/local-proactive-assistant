@@ -23,6 +23,7 @@ public actor PhoneContextSource {
     }
 
     public func request(question: String, contactName: String = "", includeCalendar: Bool, includeContacts: Bool, includeSleep: Bool, now: Date = Date()) async throws -> EvidenceRequest {
+        try EvidenceRequest(question: question, records: [], coverage: []).validate()
         var records: [EvidenceRecord] = []
         var coverage = ["Phone context only. Messages and the Mac database are not accessible here."]
         let formatter = ISO8601DateFormatter()
@@ -59,7 +60,7 @@ public actor PhoneContextSource {
             let status = await calendar.authorizationStatus()
             if status == .fullAccess {
                 let end = Calendar.current.date(byAdding: .day, value: 7, to: now)!
-                let events = try await calendar.events(from: now, to: end).filter { $0.status != .canceled }
+                let events = await calendar.events(from: now, to: end).filter { $0.status != .canceled }
                 let selected = Array(events.prefix(8 - records.count))
                 records += selected.enumerated().map { index, event in
                     EvidenceRecord(id: "calendar\(index + 1)", source: "calendar", timestamp: event.startDate,
