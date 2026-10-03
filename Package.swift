@@ -20,6 +20,8 @@ let package = Package(
         .systemLibrary(name: "CSQLite"),
         .target(name: "AssistantCore"),
         .target(name: "LocalInference"),
+        .target(name: "ProcessSupport"),
+        .target(name: "MacModelBridge", dependencies: ["LocalInference", "ProcessSupport"]),
         .target(name: "AppleModelAdapter", dependencies: ["LocalInference"]),
         .executableTarget(name: "assistant-model-worker", dependencies: ["AppleModelAdapter", "LocalInference"]),
         .target(
@@ -28,7 +30,7 @@ let package = Package(
         ),
         .target(
             name: "IMsgTransport",
-            dependencies: ["AssistantCore"]
+            dependencies: ["AssistantCore", "ProcessSupport"]
         ),
         .target(
             name: "EventKitAdapter",
@@ -46,6 +48,8 @@ let package = Package(
                 "ContactsAdapter",
                 "EventKitAdapter",
                 "IMsgTransport",
+                "LocalInference",
+                "MacModelBridge",
             ],
             exclude: ["Info.plist"],
             linkerSettings: [
