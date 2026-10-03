@@ -16,66 +16,73 @@ enum ProcessRunner {
     ) async throws -> Data {
         let child = BoundedProcess()
         return try await withTaskCancellationHandler {
-          try await withCheckedThrowingContinuation { continuation in
-            // Foundation's blocking pipe/wait APIs must not occupy Swift's cooperative executor.
-            DispatchQueue(label: "imsg.request").async {
-              do {
-            let process = child.process
-            let stdout = Pipe()
-            let stderr = Pipe()
-
-            if executable.contains("/") {
-                process.executableURL = URL(fileURLWithPath: executable)
-                process.arguments = arguments
-            } else {
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = [executable] + arguments
+            try await withCheckedThrowingContinuation { continuation in
+                // Blocking Foundation APIs must not occupy Swift's cooperative executor.
+                DispatchQueue(label: "imsg.request").async {
+                    continuation.resume(with: Result {
+                        try capture(
+                            child: child, executable: executable, arguments: arguments,
+                            standardInput: standardInput, timeout: timeout
+                        )
+                    })
+                }
             }
-
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            let stdin = standardInput.map { _ in Pipe() }
-            process.standardInput = stdin
-            try child.start()
-            let deadline = DispatchWorkItem { child.stop(timedOut: true) }
-            DispatchQueue(label: "imsg.deadline").asyncAfter(deadline: .now() + timeout, execute: deadline)
-            defer { deadline.cancel(); child.stop() }
-
-            let outputReader = ProcessOutput(stdout)
-            let errorReader = ProcessOutput(stderr)
-
-            if let standardInput, let stdin {
-                try stdin.fileHandleForWriting.write(contentsOf: standardInput)
-                try stdin.fileHandleForWriting.close()
-            }
-
-            process.waitUntilExit()
-            let output = outputReader.value()
-            let errorOutput = errorReader.value()
-
-            if child.timedOut {
-                throw TransportFailure("imsg request exceeded its \(Int(timeout))s deadline; result may be unknown")
-            }
-            if child.cancelled { throw CancellationError() }
-
-            guard process.terminationStatus == 0 else {
-                let detail = String(data: errorOutput, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                throw TransportFailure(
-                    detail?.isEmpty == false ? detail! : "imsg exited with status \(process.terminationStatus)"
-                )
-            }
-
-            continuation.resume(returning: output)
-              } catch {
-                continuation.resume(throwing: error)
-              }
-            }
-          }
         } onCancel: {
             child.stop()
         }
+    }
+
+    private static func capture(
+        child: BoundedProcess,
+        executable: String,
+        arguments: [String],
+        standardInput: Data?,
+        timeout: TimeInterval
+    ) throws -> Data {
+        let process = child.process
+        let stdout = Pipe()
+        let stderr = Pipe()
+        if executable.contains("/") {
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [executable] + arguments
+        }
+        process.standardOutput = stdout
+        process.standardError = stderr
+        let stdin = standardInput.map { _ in Pipe() }
+        process.standardInput = stdin
+        try child.start()
+        let deadline = DispatchWorkItem { child.stop(timedOut: true) }
+        DispatchQueue(label: "imsg.deadline").asyncAfter(
+            deadline: .now() + timeout, execute: deadline
+        )
+        defer {
+            deadline.cancel()
+            child.stop()
+        }
+        let outputReader = ProcessOutput(stdout)
+        let errorReader = ProcessOutput(stderr)
+        if let standardInput, let stdin {
+            try stdin.fileHandleForWriting.write(contentsOf: standardInput)
+            try stdin.fileHandleForWriting.close()
+        }
+        process.waitUntilExit()
+        let output = outputReader.value()
+        let errorOutput = errorReader.value()
+        if child.timedOut {
+            throw TransportFailure("imsg request exceeded its \(Int(timeout))s deadline; result may be unknown")
+        }
+        if child.cancelled { throw CancellationError() }
+        guard process.terminationStatus == 0 else {
+            let detail = String(data: errorOutput, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw TransportFailure(
+                detail?.isEmpty == false ? detail! : "imsg exited with status \(process.terminationStatus)"
+            )
+        }
+        return output
     }
 }
 

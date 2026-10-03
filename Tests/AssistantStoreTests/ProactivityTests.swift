@@ -77,6 +77,26 @@ struct ProactivityTests {
     }
 
     @Test
+    func evidenceCannotRepeatAcrossAssertionVersionsAndTimezoneChangesDoNotBuyASlot() async throws {
+        let store = try ObservationStore()
+        let evidence = try await seed(store)
+        try await store.setProactivityPaused(false)
+        let reservation = try #require(try await store.reserveDueReminder(now: now, calendar: calendar))
+        try await store.finishReminder(id: reservation.id, outcome: "submitted", messageGUID: "guid")
+        var changedZone = calendar
+        changedZone.timeZone = TimeZone(secondsFromGMT: 14 * 3_600)!
+        #expect(try await store.reserveDueReminder(now: now.addingTimeInterval(60), calendar: changedZone) == nil)
+        #expect(try await store.proactivityStatus().lastGate == "dailyBudget")
+        let tomorrow = now.addingTimeInterval(86_401)
+        let newAssertion = CommitmentAssertion(id: "revised-assertion", summary: evidence.observation.text, dueAt: tomorrow.addingTimeInterval(3_600), dueText: "tonight", confidence: 1, evidenceObservationID: evidence.observation.id, extractorID: DeterministicCommitmentExtractor.extractorID, schemaVersion: DeterministicCommitmentExtractor.schemaVersion, createdAt: tomorrow)
+        try await store.recordCommitments([newAssertion])
+        try await store.refreshCoverage(for: .messages, status: .partial, limitations: [], at: tomorrow)
+        #expect(try await store.reserveDueReminder(now: tomorrow, calendar: calendar) == nil)
+        #expect(try await store.proactivityStatus().lastGate == "duplicateEvidence")
+        #expect(try await store.proactiveDecisions(commitmentID: "revised-assertion").first?.contains("duplicateEvidence") == true)
+    }
+
+    @Test
     func ambiguousSendPausesAndNeverRetries() async throws {
         let store = try ObservationStore()
         try await seed(store)

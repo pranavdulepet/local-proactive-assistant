@@ -461,7 +461,7 @@ public actor ObservationStore {
         defer { sqlite3_finalize(budget) }
         try bind(day, at: 1, to: budget)
         try bind(now.addingTimeInterval(-86_400).timeIntervalSince1970, at: 2, to: budget)
-        if sqlite3_step(budget) == SQLITE_ROW {
+        if try hasRow(budget, operation: "read proactive budget") {
             try saveProactiveGate("dailyBudget", at: now)
             return nil
         }
@@ -471,19 +471,21 @@ public actor ObservationStore {
         try bind(now.addingTimeInterval(10_800).timeIntervalSince1970, at: 2, to: candidates)
         let coverage = try sourceCoverage(for: .messages)
         var lastGate = "noDueCommitment"
-        while sqlite3_step(candidates) == SQLITE_ROW {
+        while try hasRow(candidates, operation: "read due commitments") {
             let id = try text(at: 0, from: candidates)
             guard let evidence = try commitmentEvidence(id: id) else { continue }
             let currentID = try current(source: .messages, externalID: evidence.observation.externalID)?.id
             if let gate = DueCommitmentRule.gate(evidence: evidence, coverage: coverage, currentObservationID: currentID, now: now, calendar: calendar) {
                 lastGate = gate
+                try saveProactiveGate(gate, at: now, commitmentID: id)
                 continue
             }
             let repeated = try prepare("SELECT 1 FROM proactive_deliveries WHERE evidence_key = ? LIMIT 1")
             defer { sqlite3_finalize(repeated) }
             try bind(evidence.observation.externalID, at: 1, to: repeated)
-            if sqlite3_step(repeated) == SQLITE_ROW {
+            if try hasRow(repeated, operation: "check reminder evidence") {
                 lastGate = "duplicateEvidence"
+                try saveProactiveGate(lastGate, at: now, commitmentID: id)
                 continue
             }
             let reservation = ReminderReservation(id: UUID(), commitmentID: id)
@@ -495,7 +497,7 @@ public actor ObservationStore {
             try bind(day, at: 4, to: insert)
             try bind(now.timeIntervalSince1970, at: 5, to: insert)
             try step(insert, operation: "reserve proactive reminder")
-            try saveProactiveGate("reserved:\(id)", at: now)
+            try saveProactiveGate("reserved", at: now, commitmentID: id)
             return reservation
         }
         try saveProactiveGate(lastGate, at: now)
@@ -511,12 +513,42 @@ public actor ObservationStore {
         try step(statement, operation: "record proactive submission")
     }
 
-    private func saveProactiveGate(_ gate: String, at now: Date) throws {
+    public func proactiveDecisions(commitmentID: String) throws -> [String] {
+        let statement = try prepare("SELECT gate, evaluated_at FROM proactive_decisions WHERE candidate_key = ? ORDER BY evaluated_at DESC")
+        defer { sqlite3_finalize(statement) }
+        try bind(commitmentID, at: 1, to: statement)
+        var decisions: [String] = []
+        while try hasRow(statement, operation: "read proactive decisions") {
+            let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(statement, 1))
+            decisions.append("\(try text(at: 0, from: statement)) at \(ISO8601DateFormatter().string(from: timestamp))")
+        }
+        return decisions
+    }
+
+    private func saveProactiveGate(_ gate: String, at now: Date, commitmentID: String? = nil) throws {
+        // Keep the most recent evaluation per candidate/reason rather than growing every minute.
+        let audit = try prepare("""
+            INSERT INTO proactive_decisions (candidate_key, gate, evaluated_at) VALUES (?, ?, ?)
+            ON CONFLICT(candidate_key, gate) DO UPDATE SET evaluated_at = excluded.evaluated_at
+            """)
+        defer { sqlite3_finalize(audit) }
+        try bind(commitmentID ?? "policy", at: 1, to: audit)
+        try bind(gate, at: 2, to: audit)
+        try bind(now.timeIntervalSince1970, at: 3, to: audit)
+        try step(audit, operation: "record proactive gate")
         let statement = try prepare("UPDATE proactivity_settings SET last_gate = ?, checked_at = ? WHERE id = 1")
         defer { sqlite3_finalize(statement) }
         try bind(gate, at: 1, to: statement)
         try bind(now.timeIntervalSince1970, at: 2, to: statement)
         try step(statement, operation: "audit proactive gate")
+    }
+
+    private func hasRow(_ statement: OpaquePointer, operation: String) throws -> Bool {
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW: return true
+        case SQLITE_DONE: return false
+        default: throw failure("Could not \(operation)")
+        }
     }
 
     @discardableResult
@@ -1082,6 +1114,13 @@ public actor ObservationStore {
         checked_at REAL
     );
     INSERT OR IGNORE INTO proactivity_settings (id, paused, last_gate) VALUES (1, 1, 'notEvaluated');
+
+    CREATE TABLE IF NOT EXISTS proactive_decisions (
+        candidate_key TEXT NOT NULL,
+        gate TEXT NOT NULL,
+        evaluated_at REAL NOT NULL,
+        PRIMARY KEY (candidate_key, gate)
+    );
 
     CREATE TABLE IF NOT EXISTS proactive_deliveries (
         id TEXT PRIMARY KEY,

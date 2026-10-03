@@ -35,7 +35,10 @@ public struct ControlCommandHandler: Sendable {
             let status = try await store.proactivityStatus()
             var lines = ["Proactive reminders: \(status.paused ? "paused" : "enabled").", "Last gate: \(status.lastGate)."]
             if let delivery = status.lastDelivery { lines.append("Last submission: \(delivery) (not a delivery confirmation).") }
-            lines.append(contentsOf: try await coverageLines())
+            if let checked = status.checkedAt { lines.append("Policy checked: \(Self.timestamp(checked)).") }
+            for coverage in try await store.sourceCoverages() {
+                lines.append("\(coverage.source.rawValue): \(coverage.status.rawValue), synced \(Self.timestamp(coverage.lastSuccessfulSync)).")
+            }
             return lines.joined(separator: "\n")
         case .meeting(let person):
             do {
@@ -95,6 +98,8 @@ public struct ControlCommandHandler: Sendable {
         }
         lines.append("Excerpt: “\(Self.excerpt(observation.text))”")
         lines.append("Source: \(observation.locator)")
+        let decisions = try await store.proactiveDecisions(commitmentID: id)
+        lines += decisions.map { "Proactive gate: \($0)" }
         lines.append(contentsOf: try await coverageLines())
         return lines.joined(separator: "\n")
     }
