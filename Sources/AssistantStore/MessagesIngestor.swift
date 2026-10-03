@@ -47,6 +47,7 @@ public struct MessagesIngestor: Sendable {
         let limit = min(max(pageSize, 1), 500)
 
         while true {
+            try Task.checkCancellation()
             let page = try await source.messages(after: cursor, limit: limit)
             guard page.nextCursor >= cursor else {
                 throw ObservationStoreFailure("Messages history cursor moved backwards")

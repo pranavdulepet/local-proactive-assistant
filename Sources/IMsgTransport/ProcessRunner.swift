@@ -11,10 +11,13 @@ enum ProcessRunner {
     static func run(
         executable: String,
         arguments: [String],
-        standardInput: Data? = nil
+        standardInput: Data? = nil,
+        timeout: TimeInterval = 60
     ) async throws -> Data {
-        try await Task.detached {
-            let process = Process()
+        let child = BoundedProcess()
+        return try await withTaskCancellationHandler {
+          try await Task.detached {
+            let process = child.process
             let stdout = Pipe()
             let stderr = Pipe()
 
@@ -29,15 +32,12 @@ enum ProcessRunner {
             process.standardOutput = stdout
             process.standardError = stderr
 
-            if let standardInput {
-                let stdin = Pipe()
-                process.standardInput = stdin
-                try process.run()
-                try stdin.fileHandleForWriting.write(contentsOf: standardInput)
-                try stdin.fileHandleForWriting.close()
-            } else {
-                try process.run()
-            }
+            let stdin = standardInput.map { _ in Pipe() }
+            process.standardInput = stdin
+            try child.start()
+            let deadline = DispatchWorkItem { child.stop(timedOut: true) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
+            defer { deadline.cancel(); child.stop() }
 
             let outputTask = Task.detached {
                 stdout.fileHandleForReading.readDataToEndOfFile()
@@ -46,9 +46,19 @@ enum ProcessRunner {
                 stderr.fileHandleForReading.readDataToEndOfFile()
             }
 
+            if let standardInput, let stdin {
+                try stdin.fileHandleForWriting.write(contentsOf: standardInput)
+                try stdin.fileHandleForWriting.close()
+            }
+
             process.waitUntilExit()
             let output = await outputTask.value
             let errorOutput = await errorTask.value
+
+            if child.timedOut {
+                throw TransportFailure("imsg request exceeded its \(Int(timeout))s deadline; result may be unknown")
+            }
+            if child.cancelled { throw CancellationError() }
 
             guard process.terminationStatus == 0 else {
                 let detail = String(data: errorOutput, encoding: .utf8)?
@@ -59,7 +69,42 @@ enum ProcessRunner {
             }
 
             return output
-        }.value
+          }.value
+        } onCancel: {
+            child.stop()
+        }
+    }
+}
+
+/// Launch/cancel races are serialized; escalation only targets this still-running child.
+private final class BoundedProcess: @unchecked Sendable {
+    let process = Process()
+    private let lock = NSLock()
+    private var interrupted = false
+    private var deadlineExpired = false
+
+    var cancelled: Bool { lock.withLock { interrupted } }
+    var timedOut: Bool { lock.withLock { deadlineExpired } }
+
+    func start() throws {
+        try lock.withLock {
+            if interrupted { throw CancellationError() }
+            try process.run()
+        }
+    }
+
+    func stop(timedOut: Bool = false) {
+        lock.withLock {
+            interrupted = true
+            guard process.isRunning else { return }
+            deadlineExpired = deadlineExpired || timedOut
+            process.terminate()
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [self] in
+            lock.withLock {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
     }
 }
 

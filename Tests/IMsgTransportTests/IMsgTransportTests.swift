@@ -5,6 +5,31 @@ import Testing
 
 struct IMsgTransportTests {
     @Test
+    func boundsHungRequestsWithoutMarkingSendSafeToRetry() async throws {
+        do {
+            _ = try await ProcessRunner.run(executable: "/bin/sleep", arguments: ["10"], timeout: 0.1)
+            Issue.record("Expected a deadline failure")
+        } catch let error as TransportFailure {
+            #expect(error.description.contains("deadline"))
+            #expect(!error.retrySafe)
+        }
+    }
+
+    @Test
+    func cancellationStopsTheChild() async throws {
+        let request = Task {
+            try await ProcessRunner.run(executable: "/bin/sleep", arguments: ["10"])
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        request.cancel()
+        do {
+            _ = try await request.value
+            Issue.record("Expected cancellation")
+        } catch is CancellationError {
+            // Cancellation is not a successful response or a retry-safe send failure.
+        }
+    }
+    @Test
     func drainsLargeProcessOutputWhileTheChildIsRunning() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
