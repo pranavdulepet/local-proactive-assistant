@@ -85,6 +85,21 @@ struct MeetingContextServiceTests {
         }
     }
 
+    @Test
+    func returnsTheNewestMessagesEvenForLongConversations() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let store = try ObservationStore()
+        try await store.record(observation(source: .contacts, externalID: "contact", timestamp: nil, handles: ["alex@example.com"], text: "Alex"))
+        try await store.record(observation(source: .calendar, externalID: "meeting", timestamp: now.addingTimeInterval(3_600), handles: ["alex@example.com"], text: "Review"))
+        for index in 0..<110 {
+            try await store.record(observation(source: .messages, externalID: "message-\(index)", timestamp: now.addingTimeInterval(Double(index - 200)), handles: ["alex@example.com"], text: "Message \(index)"))
+        }
+        let evidence = try await MeetingContextService(store: store, clock: { now }).evidence(for: "Alex")
+        #expect(evidence.recentMessages.count == 10)
+        #expect(evidence.recentMessages.first?.text == "Message 109")
+        #expect(evidence.recentMessages.last?.text == "Message 100")
+    }
+
     private func observation(
         source: ObservationSource,
         externalID: String,

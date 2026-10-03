@@ -37,7 +37,9 @@ Implemented now:
 - a versioned deterministic extractor for explicit, actionable, owner-authored,
   time-bound commitments;
 - open-commitment, evidence explanation, and explicit completion commands;
-- an owner-control service for `/forgetting`, `/why <id>`, and `/done <id>`.
+- an owner-control service for evidence, completion, meeting context, pause and status;
+- automatic, independent source refresh in a single supervised host;
+- one opt-in due-commitment reminder rule with persistent reservations and gate audits.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
 
@@ -83,6 +85,14 @@ Only choose a private, one-to-one iMessage self-chat. The echo and control servi
 choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat
 notes are checkpointed without a reply. Send `/help` in the control chat to list commands.
 
+`serve` refreshes Messages and commitments every 60 seconds after each completed scan, and
+Calendar/Contacts every 15 minutes. Reminders start paused. `/resume` enables the one M1 rule;
+`/pause` stops unsolicited reminders without disabling commands. `/status` reports the last
+gate, submission state and source freshness. Use `/meeting <exact person>` for indexed meeting
+context. This is a foreground host: keep the Mac awake and the process running. Do not run the
+echo test or manual indexers alongside it. See [docs/m1-host.md](docs/m1-host.md) for policy,
+failure semantics and the focused device smoke test.
+
 The CLI stores its state under `~/Library/Application Support/LocalProactiveAssistant/`. A Messages restart resumes from the newer of its checkpoint and an optional `--after <ROW_ID>` value; it never rewinds a saved cursor. Calendar refreshes cover 90 days in the past through 365 days in the future and report that window after each run.
 
 For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md).
@@ -98,10 +108,20 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Validate the owner-control evidence commands on the physical self-chat.
-2. Add one gated proactive commitment rule with quiet hours and a one-message-per-day ceiling.
-3. Add `/pause` before enabling the proactive rule by default.
-4. Add a second `platform-imessage` adapter only if a measured transport gap justifies it.
+1. Evaluate the Mac local-model provider on the existing evidence path, starting with Apple's
+   system model when available. Model output never chooses a recipient or bypasses gates.
+2. Dogfood the narrow assistant and measure grounded-answer quality and interruption usefulness
+   before expanding sources, models or proactive rules.
+3. Ship signed native host/login-item support for unattended use; do not substitute shell
+   LaunchAgent installation for the planned application lifecycle.
+4. Build the later physical-iPhone companion milestone: pairing, bounded derived-event queue,
+   HTTPS sync and freshness, HealthKit, then optional location. Phone-local inference is a
+   separate evaluated addition, not required for the current iMessage control surface.
+
+Mail, broad Messages reconciliation, embeddings and additional model runtimes remain later
+work, not prerequisites silently added to M1. A second `platform-imessage` adapter is justified
+only by a measured transport gap. The M1 infrastructure is now at the Mac LLM integration
+boundary; no model runtime or phone companion has been added yet.
 
 ## License
 

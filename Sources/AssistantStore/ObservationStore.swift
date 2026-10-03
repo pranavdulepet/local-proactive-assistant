@@ -170,7 +170,8 @@ public actor ObservationStore {
         matchingAnyHandle handles: Set<String>,
         from startDate: Date? = nil,
         to endDate: Date? = nil,
-        limit: Int = 100
+        limit: Int = 100,
+        newestFirst: Bool = false
     ) throws -> [Observation] {
         guard !handles.isEmpty, limit > 0 else { return [] }
         let sortedHandles = handles.sorted()
@@ -188,7 +189,7 @@ public actor ObservationStore {
           AND oh.handle IN (\(placeholders))
           AND (? IS NULL OR o.source_timestamp >= ?)
           AND (? IS NULL OR o.source_timestamp <= ?)
-        ORDER BY o.source_timestamp, o.external_id
+        ORDER BY o.source_timestamp \(newestFirst ? "DESC" : "ASC"), o.external_id
         LIMIT ?
         """
         let statement = try prepare(sql)
@@ -395,6 +396,197 @@ public actor ObservationStore {
         try bind(AssertionStatus.active.rawValue, at: 4, to: statement)
         try step(statement, operation: "complete commitment")
         return sqlite3_changes(database) == 1
+    }
+
+    public func setProactivityPaused(_ paused: Bool) throws {
+        try execute("UPDATE proactivity_settings SET paused = \(paused ? 1 : 0) WHERE id = 1")
+    }
+
+    /// Called by the single host after acquiring its lock, never by diagnostic readers.
+    public func recoverInterruptedReminders() throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try execute("UPDATE proactivity_settings SET paused = 1 WHERE EXISTS (SELECT 1 FROM proactive_deliveries WHERE outcome = 'reserved')")
+            try execute("UPDATE proactive_deliveries SET outcome = 'unknown' WHERE outcome = 'reserved'")
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    /// A failed attempt must not change the last successful sync timestamp.
+    public func markSourceUnavailable(_ source: ObservationSource) throws {
+        let statement = try prepare("UPDATE source_coverage SET status = 'unavailable' WHERE source = ?")
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        try step(statement, operation: "mark unavailable source")
+    }
+
+    public func proactivityStatus() throws -> ProactivityStatus {
+        let statement = try prepare("SELECT paused, last_gate, checked_at FROM proactivity_settings WHERE id = 1")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw failure("Could not read proactivity settings") }
+        let delivery = try prepare("SELECT id || ': ' || outcome FROM proactive_deliveries ORDER BY reserved_at DESC LIMIT 1")
+        defer { sqlite3_finalize(delivery) }
+        let lastDelivery = sqlite3_step(delivery) == SQLITE_ROW ? try text(at: 0, from: delivery) : nil
+        return ProactivityStatus(
+            paused: sqlite3_column_int(statement, 0) == 1,
+            lastGate: try text(at: 1, from: statement),
+            checkedAt: optionalDate(at: 2, from: statement),
+            lastDelivery: lastDelivery
+        )
+    }
+
+    /// The budget, evidence check, audit decision and reservation share one SQLite transaction.
+    public func reserveDueReminder(now: Date, calendar: Calendar) throws -> ReminderReservation? {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let reservation = try reserveDueReminderInsideTransaction(now: now, calendar: calendar)
+            try execute("COMMIT")
+            return reservation
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func reserveDueReminderInsideTransaction(
+        now: Date,
+        calendar: Calendar
+    ) throws -> ReminderReservation? {
+        if try proactivityStatus().paused {
+            try saveProactiveGate("paused", at: now)
+            return nil
+        }
+        let components = calendar.dateComponents([.era, .year, .month, .day], from: now)
+        let day = "\(components.era ?? 1)-\(components.year!)-\(components.month!)-\(components.day!)"
+        let budget = try prepare("""
+            SELECT 1 FROM proactive_deliveries
+            WHERE local_day = ? OR reserved_at > ? LIMIT 1
+            """)
+        defer { sqlite3_finalize(budget) }
+        try bind(day, at: 1, to: budget)
+        try bind(now.addingTimeInterval(-86_400).timeIntervalSince1970, at: 2, to: budget)
+        if try hasRow(budget, operation: "read proactive budget") {
+            try saveProactiveGate("dailyBudget", at: now)
+            return nil
+        }
+        let candidates = try prepare("""
+            SELECT id FROM open_commitments
+            WHERE due_at >= ? AND due_at <= ? ORDER BY due_at, id
+            """)
+        defer { sqlite3_finalize(candidates) }
+        try bind(now.timeIntervalSince1970, at: 1, to: candidates)
+        try bind(now.addingTimeInterval(10_800).timeIntervalSince1970, at: 2, to: candidates)
+        let coverage = try sourceCoverage(for: .messages)
+        var lastGate = "noDueCommitment"
+        while try hasRow(candidates, operation: "read due commitments") {
+            let id = try text(at: 0, from: candidates)
+            guard let evidence = try commitmentEvidence(id: id) else { continue }
+            let currentID = try current(
+                source: .messages, externalID: evidence.observation.externalID
+            )?.id
+            if let gate = DueCommitmentRule.gate(
+                evidence: evidence, coverage: coverage, currentObservationID: currentID,
+                now: now, calendar: calendar
+            ) {
+                lastGate = gate
+                try saveProactiveGate(gate, at: now, commitmentID: id)
+                continue
+            }
+            let repeated = try prepare("SELECT 1 FROM proactive_deliveries WHERE evidence_key = ? LIMIT 1")
+            defer { sqlite3_finalize(repeated) }
+            try bind(evidence.observation.externalID, at: 1, to: repeated)
+            if try hasRow(repeated, operation: "check reminder evidence") {
+                lastGate = "duplicateEvidence"
+                try saveProactiveGate(lastGate, at: now, commitmentID: id)
+                continue
+            }
+            let reservation = ReminderReservation(id: UUID(), commitmentID: id)
+            let insert = try prepare("""
+                INSERT INTO proactive_deliveries (
+                    id, commitment_id, evidence_key, local_day, reserved_at, outcome
+                ) VALUES (?, ?, ?, ?, ?, 'reserved')
+                """)
+            defer { sqlite3_finalize(insert) }
+            try bind(reservation.id.uuidString, at: 1, to: insert)
+            try bind(id, at: 2, to: insert)
+            try bind(evidence.observation.externalID, at: 3, to: insert)
+            try bind(day, at: 4, to: insert)
+            try bind(now.timeIntervalSince1970, at: 5, to: insert)
+            try step(insert, operation: "reserve proactive reminder")
+            try saveProactiveGate("reserved", at: now, commitmentID: id)
+            return reservation
+        }
+        try saveProactiveGate(lastGate, at: now)
+        return nil
+    }
+
+    public func finishReminder(id: UUID, outcome: String, messageGUID: String?) throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try finishReminderInsideTransaction(id: id, outcome: outcome, messageGUID: messageGUID)
+            if outcome == "unknown" { try setProactivityPaused(true) }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func finishReminderInsideTransaction(
+        id: UUID,
+        outcome: String,
+        messageGUID: String?
+    ) throws {
+        let statement = try prepare("""
+            UPDATE proactive_deliveries SET outcome = ?, message_guid = ?
+            WHERE id = ? AND outcome = 'reserved'
+            """)
+        defer { sqlite3_finalize(statement) }
+        try bind(outcome, at: 1, to: statement)
+        try bind(messageGUID, at: 2, to: statement)
+        try bind(id.uuidString, at: 3, to: statement)
+        try step(statement, operation: "record proactive submission")
+    }
+
+    public func proactiveDecisions(commitmentID: String) throws -> [String] {
+        let statement = try prepare("SELECT gate, evaluated_at FROM proactive_decisions WHERE candidate_key = ? ORDER BY evaluated_at DESC")
+        defer { sqlite3_finalize(statement) }
+        try bind(commitmentID, at: 1, to: statement)
+        var decisions: [String] = []
+        while try hasRow(statement, operation: "read proactive decisions") {
+            let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(statement, 1))
+            decisions.append("\(try text(at: 0, from: statement)) at \(ISO8601DateFormatter().string(from: timestamp))")
+        }
+        return decisions
+    }
+
+    private func saveProactiveGate(_ gate: String, at now: Date, commitmentID: String? = nil) throws {
+        // Keep the most recent evaluation per candidate/reason rather than growing every minute.
+        let audit = try prepare("""
+            INSERT INTO proactive_decisions (candidate_key, gate, evaluated_at) VALUES (?, ?, ?)
+            ON CONFLICT(candidate_key, gate) DO UPDATE SET evaluated_at = excluded.evaluated_at
+            """)
+        defer { sqlite3_finalize(audit) }
+        try bind(commitmentID ?? "policy", at: 1, to: audit)
+        try bind(gate, at: 2, to: audit)
+        try bind(now.timeIntervalSince1970, at: 3, to: audit)
+        try step(audit, operation: "record proactive gate")
+        let statement = try prepare("UPDATE proactivity_settings SET last_gate = ?, checked_at = ? WHERE id = 1")
+        defer { sqlite3_finalize(statement) }
+        try bind(gate, at: 1, to: statement)
+        try bind(now.timeIntervalSince1970, at: 2, to: statement)
+        try step(statement, operation: "audit proactive gate")
+    }
+
+    private func hasRow(_ statement: OpaquePointer, operation: String) throws -> Bool {
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW: return true
+        case SQLITE_DONE: return false
+        default: throw failure("Could not \(operation)")
+        }
     }
 
     @discardableResult
@@ -951,6 +1143,32 @@ public actor ObservationStore {
     private static let schema = """
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
+
+    CREATE TABLE IF NOT EXISTS proactivity_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+        last_gate TEXT NOT NULL,
+        checked_at REAL
+    );
+    INSERT OR IGNORE INTO proactivity_settings (id, paused, last_gate) VALUES (1, 1, 'notEvaluated');
+
+    CREATE TABLE IF NOT EXISTS proactive_decisions (
+        candidate_key TEXT NOT NULL,
+        gate TEXT NOT NULL,
+        evaluated_at REAL NOT NULL,
+        PRIMARY KEY (candidate_key, gate)
+    );
+
+    CREATE TABLE IF NOT EXISTS proactive_deliveries (
+        id TEXT PRIMARY KEY,
+        commitment_id TEXT NOT NULL,
+        evidence_key TEXT NOT NULL UNIQUE,
+        local_day TEXT NOT NULL UNIQUE,
+        reserved_at REAL NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('reserved', 'submitted', 'unknown')),
+        message_guid TEXT
+    );
 
     CREATE TABLE IF NOT EXISTS observations (
         id TEXT PRIMARY KEY,
