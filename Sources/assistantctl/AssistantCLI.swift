@@ -52,11 +52,8 @@ struct AssistantCLI {
                 guard let path = takeOption("--output", from: &arguments) else {
                     throw CLIError("export-context requires --output <file.lpa-context>")
                 }
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let url = URL(fileURLWithPath: path)
-                try encoder.encode(request).write(to: url, options: [.atomic])
+                try ContextDocument.encode(request).write(to: url, options: [.atomic])
                 try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
                 print("Exported \(request.records.count) bounded records to \(url.path). This is a snapshot, not live sync.")
             }
@@ -73,7 +70,7 @@ struct AssistantCLI {
             try answer.validate(for: request)
             guard !answer.insufficientEvidence else { throw CLIError("Model abstained on the supported demo fixture.") }
             print("Bounded output and citation checks passed in \(String(format: "%.1f", Date().timeIntervalSince(start)))s.")
-            print(try await AnswerService(provider: provider).answer(request).text)
+            for claim in answer.claims { print("\(claim.text) [\(claim.evidenceIDs.joined(separator: ", "))]") }
             print("Review whether the claim accurately preserves Friday at 5 PM. Citation validation alone does not prove factual support.")
 
         case "doctor":
@@ -153,9 +150,11 @@ struct AssistantCLI {
             let conversation = model == "apple" ? ModelConversationService(
                 store: store, provider: MacModelProvider(), transport: transport, ledger: ledger, chatID: chat
             ) : nil
-            let handler = ControlCommandHandler(store: store, answerQuestion: conversation.map { conversation in
-                { question in await conversation.begin(question: question) }
-            })
+            let answerQuestion: (@Sendable (String) async -> String)?
+            if let conversation {
+                answerQuestion = { question in await conversation.begin(question: question) }
+            } else { answerQuestion = nil }
+            let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
             let service = EchoService(
                 transport: transport,
                 ledger: ledger,
