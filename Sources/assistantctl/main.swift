@@ -90,9 +90,17 @@ struct AssistantCLI {
                   let chatID = Int64(rawChatID), chatID > 0 else {
                 throw CLIError("serve requires --control-chat-id <positive integer>")
             }
+            let hostLock = try HostLock(fileURL: try stateURL("host.lock"))
+            defer { withExtendedLifetime(hostLock) {} }
+            let chat = TransportChatID(rawValue: chatID)
+            guard let selectedChat = try await transport.chats().first(where: { $0.id == chat }),
+                  !selectedChat.isGroup, selectedChat.service == "iMessage" else {
+                throw CLIError("Control chat must appear in the recent chats and be a direct iMessage conversation. Send it a message, then retry.")
+            }
             let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            try await store.recoverInterruptedReminders()
             let handler = ControlCommandHandler(store: store)
             let service = EchoService(
                 transport: transport,
@@ -107,22 +115,59 @@ struct AssistantCLI {
                 }
             )
 
-            let chat = TransportChatID(rawValue: chatID)
             let resumeCursor = await cursorStore.cursor(for: chat)
             print("Serving owner commands in chat \(chatID). Press Control-C to stop.")
+            print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
             if let resumeCursor {
                 print("Resuming after row \(resumeCursor.rawValue).")
             }
-            for try await event in service.events(chatID: chat, after: resumeCursor) {
-                switch event.decision {
-                case .accept where event.receipt != nil:
-                    let guid = event.receipt?.messageGUID ?? "unverified"
-                    print("handled row \(event.inbound.cursor.rawValue); sent \(guid)")
-                case .accept:
-                    print("ignored row \(event.inbound.cursor.rawValue): not a command")
-                case .reject(let reason):
-                    print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
+            let refresh = HostRefreshService(
+                messages: transport, calendar: EventKitCalendarSource(),
+                contacts: ContactsStoreSource(), store: store, controlChatID: chat
+            )
+            let reminders = ProactiveReminderService(store: store, transport: transport, ledger: ledger)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for try await event in service.events(chatID: chat, after: resumeCursor) {
+                        switch event.decision {
+                        case .accept where event.receipt != nil:
+                            let guid = event.receipt?.messageGUID ?? "unverified"
+                            print("handled row \(event.inbound.cursor.rawValue); submitted \(guid)")
+                        case .accept:
+                            print("ignored row \(event.inbound.cursor.rawValue): not a command")
+                        case .reject(let reason):
+                            print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
+                        }
+                    }
                 }
+                group.addTask {
+                    while !Task.isCancelled {
+                        let report = try await refresh.refresh()
+                        for source in report.failures {
+                            print("\(source.rawValue) refresh unavailable; check permission/access. Commands remain available.")
+                        }
+                        if report.messagesReady {
+                            do {
+                                if try await reminders.tick(chatID: chat) {
+                                    print("proactive reminder submitted (not a delivery confirmation)")
+                                }
+                            } catch {
+                                try Task.checkCancellation()
+                                print("proactive submission uncertain; reminders paused. Check /status before /resume.")
+                            }
+                        }
+                        try await Task.sleep(for: .seconds(60))
+                    }
+                }
+                defer { group.cancelAll() }
+                try await group.next()
+            }
+
+        case "proactive-status", "pause", "resume":
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let text = command == "proactive-status" ? "/status" : "/\(command)"
+            if let response = try await ControlCommandHandler(store: store).response(to: text) {
+                print(response)
             }
 
         case "index-messages":
@@ -344,6 +389,9 @@ struct AssistantCLI {
           assistantctl chats [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
           assistantctl serve --control-chat-id <id> [--imsg <path>]
+          assistantctl proactive-status
+          assistantctl pause
+          assistantctl resume
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
           assistantctl index-calendar
           assistantctl index-contacts

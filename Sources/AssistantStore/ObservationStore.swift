@@ -401,6 +401,27 @@ public actor ObservationStore {
         try execute("UPDATE proactivity_settings SET paused = \(paused ? 1 : 0) WHERE id = 1")
     }
 
+    /// Called by the single host after acquiring its lock, never by diagnostic readers.
+    public func recoverInterruptedReminders() throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try execute("UPDATE proactivity_settings SET paused = 1 WHERE EXISTS (SELECT 1 FROM proactive_deliveries WHERE outcome = 'reserved')")
+            try execute("UPDATE proactive_deliveries SET outcome = 'unknown' WHERE outcome = 'reserved'")
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    /// A failed attempt must not change the last successful sync timestamp.
+    public func markSourceUnavailable(_ source: ObservationSource) throws {
+        let statement = try prepare("UPDATE source_coverage SET status = 'unavailable' WHERE source = ?")
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        try step(statement, operation: "mark unavailable source")
+    }
+
     public func proactivityStatus() throws -> ProactivityStatus {
         let statement = try prepare("SELECT paused, last_gate, checked_at FROM proactivity_settings WHERE id = 1")
         defer { sqlite3_finalize(statement) }
