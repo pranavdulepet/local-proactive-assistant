@@ -4,10 +4,11 @@ import PackageDescription
 
 let package = Package(
     name: "LocalProactiveAssistant",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "AssistantCore", targets: ["AssistantCore"]),
         .library(name: "AssistantStore", targets: ["AssistantStore"]),
+        .library(name: "LocalInference", targets: ["LocalInference"]),
         .library(name: "ContactsAdapter", targets: ["ContactsAdapter"]),
         .library(name: "EventKitAdapter", targets: ["EventKitAdapter"]),
         .library(name: "IMsgTransport", targets: ["IMsgTransport"]),
@@ -16,9 +17,10 @@ let package = Package(
     targets: [
         .systemLibrary(name: "CSQLite"),
         .target(name: "AssistantCore"),
+        .target(name: "LocalInference"),
         .target(
             name: "AssistantStore",
-            dependencies: ["AssistantCore", "CSQLite"]
+            dependencies: ["AssistantCore", "CSQLite", "LocalInference"]
         ),
         .target(
             name: "IMsgTransport",
@@ -50,6 +52,10 @@ let package = Package(
                     "-Xlinker", "Sources/assistantctl/Info.plist",
                 ])
             ]
+        ),
+        .testTarget(
+            name: "LocalInferenceTests",
+            dependencies: ["LocalInference"]
         ),
         .testTarget(
             name: "AssistantCoreTests",
