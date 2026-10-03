@@ -40,5 +40,5 @@ jobs:
       - name: Run phone demo smoke test
         run: >-
           xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
-          -scheme AssistantPhone -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest'
-          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO test
+          -scheme AssistantPhone -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest,arch=arm64'
+          -derivedDataPath DerivedDataUITest CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES test

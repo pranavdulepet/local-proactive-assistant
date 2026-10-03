@@ -8,6 +8,7 @@ final class AssistantPhoneUITests: XCTestCase {
         let ask = app.buttons["Ask locally"]
         XCTAssertTrue(ask.waitForExistence(timeout: 15))
         ask.tap()
+        app.swipeUp()
         let answer = app.staticTexts["localAnswer"]
         XCTAssertTrue(answer.waitForExistence(timeout: 45))
         XCTAssertTrue(answer.label.contains("Friday at 5 PM"))

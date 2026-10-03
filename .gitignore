@@ -4,6 +4,7 @@
 .swiftpm/
 DerivedData/
 DerivedDataDevice/
+DerivedDataUITest/
 xcuserdata/
 *.lpa-context
 *.xcuserstate
