@@ -79,16 +79,14 @@ public struct MeetingContextService: Sendable {
             matchingAnyHandle: handles,
             from: messageStart,
             to: meeting.sourceTimestamp,
-            limit: 100
+            limit: 10,
+            newestFirst: true
         )
-        let recentMessages = messages.sorted {
-            ($0.sourceTimestamp ?? .distantPast) > ($1.sourceTimestamp ?? .distantPast)
-        }.prefix(10)
 
         return MeetingContextEvidence(
             person: person,
             meeting: meeting,
-            recentMessages: Array(recentMessages),
+            recentMessages: messages,
             coverage: try await store.sourceCoverages()
         )
     }

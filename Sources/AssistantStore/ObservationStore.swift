@@ -170,7 +170,8 @@ public actor ObservationStore {
         matchingAnyHandle handles: Set<String>,
         from startDate: Date? = nil,
         to endDate: Date? = nil,
-        limit: Int = 100
+        limit: Int = 100,
+        newestFirst: Bool = false
     ) throws -> [Observation] {
         guard !handles.isEmpty, limit > 0 else { return [] }
         let sortedHandles = handles.sorted()
@@ -188,7 +189,7 @@ public actor ObservationStore {
           AND oh.handle IN (\(placeholders))
           AND (? IS NULL OR o.source_timestamp >= ?)
           AND (? IS NULL OR o.source_timestamp <= ?)
-        ORDER BY o.source_timestamp, o.external_id
+        ORDER BY o.source_timestamp \(newestFirst ? "DESC" : "ASC"), o.external_id
         LIMIT ?
         """
         let statement = try prepare(sql)
@@ -505,6 +506,18 @@ public actor ObservationStore {
     }
 
     public func finishReminder(id: UUID, outcome: String, messageGUID: String?) throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try finishReminderInsideTransaction(id: id, outcome: outcome, messageGUID: messageGUID)
+            if outcome == "unknown" { try setProactivityPaused(true) }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func finishReminderInsideTransaction(id: UUID, outcome: String, messageGUID: String?) throws {
         let statement = try prepare("UPDATE proactive_deliveries SET outcome = ?, message_guid = ? WHERE id = ? AND outcome = 'reserved'")
         defer { sqlite3_finalize(statement) }
         try bind(outcome, at: 1, to: statement)

@@ -82,7 +82,6 @@ public struct ProactiveReminderService: Sendable {
         } catch {
             // Even a missing receipt can follow a successful external side effect.
             try await store.finishReminder(id: reservation.id, outcome: "unknown", messageGUID: nil)
-            try await store.setProactivityPaused(true)
             throw error
         }
     }
