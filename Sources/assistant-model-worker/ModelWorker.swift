@@ -5,6 +5,20 @@ import LocalInference
 @main
 struct ModelWorker {
     static func main() async {
+        // Installer/CI diagnostic only. This path is never exposed to a model session.
+        if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--sandbox-check" {
+            do {
+                _ = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
+                FileHandle.standardError.write(Data("Worker read a file outside its sandbox.\n".utf8))
+                exit(1)
+            } catch let error as CocoaError where error.code == .fileReadNoPermission {
+                print("Sandbox denied access to the host probe file.")
+                return
+            } catch {
+                FileHandle.standardError.write(Data("Sandbox probe failed for an unexpected reason.\n".utf8))
+                exit(1)
+            }
+        }
         let response: ModelWireResponse
         do {
             var data = Data()
