@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "AssistantStore", targets: ["AssistantStore"]),
         .library(name: "LocalInference", targets: ["LocalInference"]),
         .library(name: "AppleModelAdapter", targets: ["AppleModelAdapter"]),
+        .library(name: "PhoneContext", targets: ["PhoneContext"]),
         .library(name: "ContactsAdapter", targets: ["ContactsAdapter"]),
         .library(name: "EventKitAdapter", targets: ["EventKitAdapter"]),
         .library(name: "IMsgTransport", targets: ["IMsgTransport"]),
@@ -23,6 +24,7 @@ let package = Package(
         .target(name: "ProcessSupport"),
         .target(name: "MacModelBridge", dependencies: ["LocalInference", "ProcessSupport"]),
         .target(name: "AppleModelAdapter", dependencies: ["LocalInference"]),
+        .target(name: "PhoneContext", dependencies: ["AssistantCore", "LocalInference", "ContactsAdapter", "EventKitAdapter"]),
         .executableTarget(name: "assistant-model-worker", dependencies: ["AppleModelAdapter", "LocalInference"]),
         .target(
             name: "AssistantStore",
@@ -60,6 +62,10 @@ let package = Package(
                     "-Xlinker", "Sources/assistantctl/Info.plist",
                 ])
             ]
+        ),
+        .testTarget(
+            name: "PhoneContextTests",
+            dependencies: ["PhoneContext", "LocalInference"]
         ),
         .testTarget(
             name: "AppleModelAdapterTests",
