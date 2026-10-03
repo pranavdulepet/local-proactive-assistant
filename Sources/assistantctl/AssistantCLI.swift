@@ -153,6 +153,7 @@ struct AssistantCLI {
                                 }
                             } catch {
                                 try Task.checkCancellation()
+                                try await store.setProactivityPaused(true)
                                 print("proactive submission uncertain; reminders paused. Check /status before /resume.")
                             }
                         }

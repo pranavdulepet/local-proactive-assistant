@@ -59,25 +59,38 @@ public struct ProactiveReminderService: Sendable {
     private let transport: any MessageTransport
     private let ledger: OutboundLedger
 
-    public init(store: ObservationStore, transport: any MessageTransport, ledger: OutboundLedger) {
+    public init(
+        store: ObservationStore,
+        transport: any MessageTransport,
+        ledger: OutboundLedger
+    ) {
         self.store = store
         self.transport = transport
         self.ledger = ledger
     }
 
     /// Reserve before touching the transport. An interrupted/ambiguous send is never retried.
-    public func tick(chatID: TransportChatID, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) async throws -> Bool {
+    public func tick(
+        chatID: TransportChatID,
+        now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) async throws -> Bool {
         guard let reservation = try await store.reserveDueReminder(now: now, calendar: calendar) else {
             return false
         }
         do {
             try Task.checkCancellation()
-            try await ledger.begin(requestID: reservation.id, chatID: chatID, text: reservation.text, sentAt: now)
+            try await ledger.begin(
+                requestID: reservation.id, chatID: chatID,
+                text: reservation.text, sentAt: now
+            )
             let receipt = try await transport.send(
                 OutboundTransportMessage(requestID: reservation.id, text: reservation.text), to: chatID
             )
             try await ledger.confirm(requestID: reservation.id, messageGUID: receipt.messageGUID)
-            try await store.finishReminder(id: reservation.id, outcome: "submitted", messageGUID: receipt.messageGUID)
+            try await store.finishReminder(
+                id: reservation.id, outcome: "submitted", messageGUID: receipt.messageGUID
+            )
             return true
         } catch {
             // Even a missing receipt can follow a successful external side effect.

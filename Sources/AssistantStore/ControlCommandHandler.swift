@@ -1,3 +1,4 @@
+import AssistantCore
 import Foundation
 
 public struct ControlCommandHandler: Sendable {
@@ -36,7 +37,11 @@ public struct ControlCommandHandler: Sendable {
             var lines = ["Proactive reminders: \(status.paused ? "paused" : "enabled").", "Last gate: \(status.lastGate)."]
             if let delivery = status.lastDelivery { lines.append("Last submission: \(delivery) (not a delivery confirmation).") }
             if let checked = status.checkedAt { lines.append("Policy checked: \(Self.timestamp(checked)).") }
-            for coverage in try await store.sourceCoverages() {
+            for source in ObservationSource.allCases {
+                guard let coverage = try await store.sourceCoverage(for: source) else {
+                    lines.append("\(source.rawValue): never synced.")
+                    continue
+                }
                 lines.append("\(coverage.source.rawValue): \(coverage.status.rawValue), synced \(Self.timestamp(coverage.lastSuccessfulSync)).")
             }
             return lines.joined(separator: "\n")

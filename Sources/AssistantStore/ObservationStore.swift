@@ -451,14 +451,20 @@ public actor ObservationStore {
         }
     }
 
-    private func reserveDueReminderInsideTransaction(now: Date, calendar: Calendar) throws -> ReminderReservation? {
+    private func reserveDueReminderInsideTransaction(
+        now: Date,
+        calendar: Calendar
+    ) throws -> ReminderReservation? {
         if try proactivityStatus().paused {
             try saveProactiveGate("paused", at: now)
             return nil
         }
         let components = calendar.dateComponents([.era, .year, .month, .day], from: now)
         let day = "\(components.era ?? 1)-\(components.year!)-\(components.month!)-\(components.day!)"
-        let budget = try prepare("SELECT 1 FROM proactive_deliveries WHERE local_day = ? OR reserved_at > ? LIMIT 1")
+        let budget = try prepare("""
+            SELECT 1 FROM proactive_deliveries
+            WHERE local_day = ? OR reserved_at > ? LIMIT 1
+            """)
         defer { sqlite3_finalize(budget) }
         try bind(day, at: 1, to: budget)
         try bind(now.addingTimeInterval(-86_400).timeIntervalSince1970, at: 2, to: budget)
@@ -466,7 +472,10 @@ public actor ObservationStore {
             try saveProactiveGate("dailyBudget", at: now)
             return nil
         }
-        let candidates = try prepare("SELECT id FROM open_commitments WHERE due_at >= ? AND due_at <= ? ORDER BY due_at, id")
+        let candidates = try prepare("""
+            SELECT id FROM open_commitments
+            WHERE due_at >= ? AND due_at <= ? ORDER BY due_at, id
+            """)
         defer { sqlite3_finalize(candidates) }
         try bind(now.timeIntervalSince1970, at: 1, to: candidates)
         try bind(now.addingTimeInterval(10_800).timeIntervalSince1970, at: 2, to: candidates)
@@ -475,8 +484,13 @@ public actor ObservationStore {
         while try hasRow(candidates, operation: "read due commitments") {
             let id = try text(at: 0, from: candidates)
             guard let evidence = try commitmentEvidence(id: id) else { continue }
-            let currentID = try current(source: .messages, externalID: evidence.observation.externalID)?.id
-            if let gate = DueCommitmentRule.gate(evidence: evidence, coverage: coverage, currentObservationID: currentID, now: now, calendar: calendar) {
+            let currentID = try current(
+                source: .messages, externalID: evidence.observation.externalID
+            )?.id
+            if let gate = DueCommitmentRule.gate(
+                evidence: evidence, coverage: coverage, currentObservationID: currentID,
+                now: now, calendar: calendar
+            ) {
                 lastGate = gate
                 try saveProactiveGate(gate, at: now, commitmentID: id)
                 continue
@@ -490,7 +504,11 @@ public actor ObservationStore {
                 continue
             }
             let reservation = ReminderReservation(id: UUID(), commitmentID: id)
-            let insert = try prepare("INSERT INTO proactive_deliveries (id, commitment_id, evidence_key, local_day, reserved_at, outcome) VALUES (?, ?, ?, ?, ?, 'reserved')")
+            let insert = try prepare("""
+                INSERT INTO proactive_deliveries (
+                    id, commitment_id, evidence_key, local_day, reserved_at, outcome
+                ) VALUES (?, ?, ?, ?, ?, 'reserved')
+                """)
             defer { sqlite3_finalize(insert) }
             try bind(reservation.id.uuidString, at: 1, to: insert)
             try bind(id, at: 2, to: insert)
@@ -517,8 +535,15 @@ public actor ObservationStore {
         }
     }
 
-    private func finishReminderInsideTransaction(id: UUID, outcome: String, messageGUID: String?) throws {
-        let statement = try prepare("UPDATE proactive_deliveries SET outcome = ?, message_guid = ? WHERE id = ? AND outcome = 'reserved'")
+    private func finishReminderInsideTransaction(
+        id: UUID,
+        outcome: String,
+        messageGUID: String?
+    ) throws {
+        let statement = try prepare("""
+            UPDATE proactive_deliveries SET outcome = ?, message_guid = ?
+            WHERE id = ? AND outcome = 'reserved'
+            """)
         defer { sqlite3_finalize(statement) }
         try bind(outcome, at: 1, to: statement)
         try bind(messageGUID, at: 2, to: statement)
