@@ -38,13 +38,13 @@ An observation records source text and provenance. It does not represent a trust
 - Calendar deletion reconciliation and coverage outside the bounded scan window;
 - model-based commitment extraction and automatic completion detection;
 - model inference;
-- proactive sending;
 - Mail and embeddings.
 
-## Next slice
+## Host checkpoint
 
-Add the owner-control `/why` route and one gated proactive commitment rule. The
-deterministic commitment path remains separate from meeting-context evidence.
+The owner-control routes, opt-in proactive rule and automatic refresh are implemented.
+The deterministic commitment path remains separate from meeting-context evidence. The next
+planned slice is Mac local-model evaluation, not new source scaffolding. See [m1-host.md](m1-host.md).
 
 Run a Messages catch-up manually with:
 
@@ -120,10 +120,16 @@ swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
 The control chat accepts `/forgetting`, the exact natural-language question “What am I
-forgetting?”, `/why <ID>`, `/done <ID>`, and `/help`. `/why` formats the stored assertion,
+forgetting?”, `/why <ID>`, `/done <ID>`, `/meeting <exact person>`, `/pause`, `/resume`,
+`/status`, and `/help`. `/why` formats the stored assertion,
 source excerpt, timestamp, conversation handle, locator, and current Messages coverage. It
 does not ask a model to invent an explanation. Messages that are not commands advance the
 durable cursor without receiving a reply.
+
+`serve` also refreshes Messages/commitments every minute and Calendar/Contacts every 15 minutes.
+Reminders are paused on first use. Coverage failures preserve the last successful sync time;
+failed Messages refreshes suppress proactive dispatch. These are supervised foreground loops,
+not boot-time services. Stop the host before running manual indexers or maintenance SQL.
 
 Existing Messages observations predate handle provenance. After upgrading, clear only the
 Messages source cursor and run the indexer once to append handle-aware versions while keeping
