@@ -16,7 +16,10 @@ enum ProcessRunner {
     ) async throws -> Data {
         let child = BoundedProcess()
         return try await withTaskCancellationHandler {
-          try await Task.detached {
+          try await withCheckedThrowingContinuation { continuation in
+            // Foundation's blocking pipe/wait APIs must not occupy Swift's cooperative executor.
+            DispatchQueue(label: "imsg.request").async {
+              do {
             let process = child.process
             let stdout = Pipe()
             let stderr = Pipe()
@@ -36,15 +39,11 @@ enum ProcessRunner {
             process.standardInput = stdin
             try child.start()
             let deadline = DispatchWorkItem { child.stop(timedOut: true) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: deadline)
+            DispatchQueue(label: "imsg.deadline").asyncAfter(deadline: .now() + timeout, execute: deadline)
             defer { deadline.cancel(); child.stop() }
 
-            let outputTask = Task.detached {
-                stdout.fileHandleForReading.readDataToEndOfFile()
-            }
-            let errorTask = Task.detached {
-                stderr.fileHandleForReading.readDataToEndOfFile()
-            }
+            let outputReader = ProcessOutput(stdout)
+            let errorReader = ProcessOutput(stderr)
 
             if let standardInput, let stdin {
                 try stdin.fileHandleForWriting.write(contentsOf: standardInput)
@@ -52,8 +51,8 @@ enum ProcessRunner {
             }
 
             process.waitUntilExit()
-            let output = await outputTask.value
-            let errorOutput = await errorTask.value
+            let output = outputReader.value()
+            let errorOutput = errorReader.value()
 
             if child.timedOut {
                 throw TransportFailure("imsg request exceeded its \(Int(timeout))s deadline; result may be unknown")
@@ -68,11 +67,33 @@ enum ProcessRunner {
                 )
             }
 
-            return output
-          }.value
+            continuation.resume(returning: output)
+              } catch {
+                continuation.resume(throwing: error)
+              }
+            }
+          }
         } onCancel: {
             child.stop()
         }
+    }
+}
+
+private final class ProcessOutput: @unchecked Sendable {
+    private let group = DispatchGroup()
+    private var data = Data()
+
+    init(_ pipe: Pipe) {
+        group.enter()
+        DispatchQueue(label: "imsg.pipe").async { [self] in
+            data = pipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+    }
+
+    func value() -> Data {
+        group.wait()
+        return data
     }
 }
 
@@ -100,7 +121,7 @@ private final class BoundedProcess: @unchecked Sendable {
             deadlineExpired = deadlineExpired || timedOut
             process.terminate()
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [self] in
+        DispatchQueue(label: "imsg.terminate").asyncAfter(deadline: .now() + 2) { [self] in
             lock.withLock {
                 if process.isRunning { kill(process.processIdentifier, SIGKILL) }
             }

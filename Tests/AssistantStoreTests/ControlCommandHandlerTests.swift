@@ -74,6 +74,19 @@ struct ControlCommandHandlerTests {
         )
     }
 
+    @Test
+    func persistsPauseAndResumeAndReportsPolicy() async throws {
+        let store = try ObservationStore()
+        let handler = ControlCommandHandler(store: store)
+        #expect(try await handler.response(to: "/status")?.contains("paused") == true)
+        #expect(try await handler.response(to: "/resume")?.contains("one per day") == true)
+        #expect(try await store.proactivityStatus().paused == false)
+        #expect(try await handler.response(to: "/pause")?.contains("paused") == true)
+        #expect(try await store.proactivityStatus().paused)
+        #expect(try await handler.response(to: "/meeting") == "Usage: /meeting <exact person>")
+        #expect(try await handler.response(to: "/meeting missing-person")?.contains("No contact exactly matches") == true)
+    }
+
     private func fixture() async throws -> (ObservationStore, CommitmentAssertion) {
         let store = try ObservationStore()
         let sourceDate = now.addingTimeInterval(-86_400)

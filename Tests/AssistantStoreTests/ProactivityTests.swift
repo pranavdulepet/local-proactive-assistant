@@ -65,6 +65,50 @@ struct ProactivityTests {
         #expect(results.compactMap { $0 }.count == 1)
     }
 
+    @Test
+    func interruptedReservationsPauseOnRecovery() async throws {
+        let store = try ObservationStore()
+        try await seed(store)
+        try await store.setProactivityPaused(false)
+        _ = try #require(try await store.reserveDueReminder(now: now, calendar: calendar))
+        try await store.recoverInterruptedReminders()
+        #expect(try await store.proactivityStatus().paused)
+        #expect(try await store.proactivityStatus().lastDelivery?.contains("unknown") == true)
+    }
+
+    @Test
+    func ambiguousSendPausesAndNeverRetries() async throws {
+        let store = try ObservationStore()
+        try await seed(store)
+        try await store.setProactivityPaused(false)
+        let transport = ReminderTransport(fail: true)
+        let service = ProactiveReminderService(store: store, transport: transport, ledger: try OutboundLedger())
+        let chat = TransportChatID(rawValue: 42)
+        do {
+            _ = try await service.tick(chatID: chat, now: now, calendar: calendar)
+            Issue.record("Expected ambiguous send failure")
+        } catch is TransportFailure {}
+        #expect(try await store.proactivityStatus().paused)
+        try await store.setProactivityPaused(false)
+        #expect(try await service.tick(chatID: chat, now: now, calendar: calendar) == false)
+        #expect(await transport.sent.count == 1)
+    }
+
+    @Test
+    func submitsOnlyToFixedChatAndSuppressesItsEcho() async throws {
+        let store = try ObservationStore()
+        try await seed(store)
+        try await store.setProactivityPaused(false)
+        let transport = ReminderTransport(fail: false)
+        let ledger = try OutboundLedger()
+        let service = ProactiveReminderService(store: store, transport: transport, ledger: ledger)
+        let chat = TransportChatID(rawValue: 42)
+        #expect(try await service.tick(chatID: chat, now: now, calendar: calendar))
+        #expect(await transport.sent == [chat])
+        #expect(try await ledger.contains(messageGUID: "reminder-guid", chatID: chat, at: now))
+        #expect(try await store.proactivityStatus().lastDelivery?.contains("submitted") == true)
+    }
+
     @discardableResult
     private func seed(_ store: ObservationStore) async throws -> CommitmentEvidence {
         let observation = Observation(source: .messages, externalID: "source-1", versionHash: "v1", sourceRevision: 1, sourceTimestamp: now.addingTimeInterval(-3_600), trust: .ownerAuthored, text: "I will send the private deck tonight", locator: "imsg:source-1")
@@ -73,5 +117,21 @@ struct ProactivityTests {
         try await store.recordCommitments([commitment])
         try await store.refreshCoverage(for: .messages, status: .partial, limitations: [], at: now)
         return CommitmentEvidence(commitment: commitment, observation: observation)
+    }
+}
+
+private actor ReminderTransport: MessageTransport {
+    let fail: Bool
+    var sent: [TransportChatID] = []
+    init(fail: Bool) { self.fail = fail }
+    func probe() -> TransportHealth { TransportHealth(ready: true, detail: "test") }
+    func chats() -> [TransportChat] { [] }
+    nonisolated func subscribe(chatID: TransportChatID, after cursor: TransportCursor?) -> AsyncThrowingStream<InboundTransportMessage, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+    func send(_ message: OutboundTransportMessage, to chatID: TransportChatID) throws -> SendReceipt {
+        sent.append(chatID)
+        if fail { throw TransportFailure("unknown result") }
+        return SendReceipt(requestID: message.requestID, messageGUID: "reminder-guid", rowID: 1, transport: "test")
     }
 }
