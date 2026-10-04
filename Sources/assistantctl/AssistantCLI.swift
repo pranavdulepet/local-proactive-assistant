@@ -207,8 +207,17 @@ struct AssistantCLI {
             ) {
                 switch event.decision {
                 case .accept:
-                    let guid = event.receipt?.messageGUID ?? "unverified"
-                    print("accepted row \(event.inbound.cursor.rawValue); sent \(guid)")
+                    switch event.sendOutcome {
+                    case .confirmed:
+                        let guid = event.receipt?.messageGUID ?? "unverified"
+                        print("accepted row \(event.inbound.cursor.rawValue); sent \(guid)")
+                    case .notStarted:
+                        print("row \(event.inbound.cursor.rawValue): send did not start; text again if needed")
+                    case .uncertain:
+                        print("row \(event.inbound.cursor.rawValue): delivery outcome unknown; not retried")
+                    case .notAttempted:
+                        print("row \(event.inbound.cursor.rawValue): no reply")
+                    }
                 case .reject(let reason):
                     print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
                 }
@@ -302,13 +311,22 @@ struct AssistantCLI {
                                 chatID: session.chatID, after: resumeCursor
                             ) {
                                 switch event.decision {
-                                case .accept where event.receipt != nil:
-                                    let guid = event.receipt?.messageGUID ?? "unverified"
-                                    print("chat \(session.chatID.rawValue) handled row "
-                                        + "\(event.inbound.cursor.rawValue); submitted \(guid)")
                                 case .accept:
-                                    print("chat \(session.chatID.rawValue) ignored row "
-                                        + "\(event.inbound.cursor.rawValue): not a command")
+                                    switch event.sendOutcome {
+                                    case .confirmed:
+                                        let guid = event.receipt?.messageGUID ?? "unverified"
+                                        print("chat \(session.chatID.rawValue) handled row "
+                                            + "\(event.inbound.cursor.rawValue); submitted \(guid)")
+                                    case .notStarted:
+                                        print("chat \(session.chatID.rawValue) row "
+                                            + "\(event.inbound.cursor.rawValue): send did not start; text again if needed")
+                                    case .uncertain:
+                                        print("chat \(session.chatID.rawValue) row "
+                                            + "\(event.inbound.cursor.rawValue): delivery outcome unknown; not retried")
+                                    case .notAttempted:
+                                        print("chat \(session.chatID.rawValue) ignored row "
+                                            + "\(event.inbound.cursor.rawValue): not a command")
+                                    }
                                 case .reject(let reason):
                                     print("chat \(session.chatID.rawValue) ignored row "
                                         + "\(event.inbound.cursor.rawValue): \(reason.rawValue)")
