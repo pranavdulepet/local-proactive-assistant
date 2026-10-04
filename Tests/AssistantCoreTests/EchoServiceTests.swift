@@ -115,6 +115,25 @@ struct EchoServiceTests {
     }
 
     @Test
+    func hostDoesNotCheckpointWhenDurableEnqueueFails() async throws {
+        let cursorStore = CursorStore()
+        let transport = ScriptedTransport(
+            steps: [.messages([message(cursor: 104, text: "hello")])]
+        )
+        let service = EchoService(
+            transport: transport,
+            ledger: try OutboundLedger(),
+            cursorStore: cursorStore,
+            replyMessage: { _ in throw TransportFailure("inbox unavailable") },
+            checkpointAfterReply: true
+        )
+        do {
+            for try await _ in service.events(chatID: chatID) {}
+        } catch {}
+        #expect(await cursorStore.cursor(for: chatID) == nil)
+    }
+
+    @Test
     func uncertainSendKeepsHostAliveAndDoesNotReplayCommand() async throws {
         let cursorStore = CursorStore()
         let transport = ScriptedTransport(
