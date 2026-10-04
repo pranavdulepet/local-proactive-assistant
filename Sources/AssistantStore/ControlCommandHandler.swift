@@ -4,12 +4,12 @@ import Foundation
 public struct ControlCommandHandler: Sendable {
     private let store: ObservationStore
     private let clock: @Sendable () -> Date
-    private let answerQuestion: (@Sendable (String) async -> String?)?
+    private let answerQuestion: (@Sendable (String) async throws -> String?)?
 
     public init(
         store: ObservationStore,
         clock: @escaping @Sendable () -> Date = Date.init,
-        answerQuestion: (@Sendable (String) async -> String?)? = nil
+        answerQuestion: (@Sendable (String) async throws -> String?)? = nil
     ) {
         self.store = store
         self.clock = clock
@@ -24,7 +24,7 @@ public struct ControlCommandHandler: Sendable {
                 return agenda
             }
             guard let answerQuestion else { return nil }
-            return await answerQuestion(question)
+            return try await answerQuestion(question)
         }
 
         switch command {
@@ -33,7 +33,7 @@ public struct ControlCommandHandler: Sendable {
                 return agenda
             }
             guard let answerQuestion else { return "Local answers are disabled. Start serve with a ready local model." }
-            return await answerQuestion(question)
+            return try await answerQuestion(question)
         case .forgetting:
             return try await forgettingResponse()
         case .why(let id):
