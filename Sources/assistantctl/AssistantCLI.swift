@@ -103,6 +103,41 @@ struct AssistantCLI {
                 print("\(chat.id.rawValue)\t\(kind)\t\(chat.service)\t\(chat.displayName)")
             }
 
+        case "pair-chat":
+            let health = await transport.probe()
+            guard health.ready else { throw CLIError("Messages is unavailable: \(health.detail)") }
+            let code = "LOCAL-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)
+            let started = Date()
+            print("On your iPhone, send \(code) to your private iMessage self-chat.")
+            print("Waiting up to two minutes for that exact message...")
+            var matchedChat: TransportChat?
+            for _ in 0..<60 {
+                let matches = try await transport.matchingMessages(code)
+                if let match = matches.first(where: { $0.isFromMe && $0.createdAt >= started.addingTimeInterval(-5) }) {
+                    matchedChat = try await transport.chats().first {
+                        $0.id == match.chatID && !$0.isGroup && $0.service == "iMessage"
+                    }
+                    if matchedChat == nil {
+                        throw CLIError("The code appeared outside a recent direct iMessage chat. Retry in your self-chat.")
+                    }
+                    break
+                }
+                try await Task.sleep(for: .seconds(2))
+            }
+            guard let matchedChat else { throw CLIError("No matching self-chat message arrived. Check Messages sync and retry.") }
+            print("Found direct chat: \(matchedChat.displayName) [\(matchedChat.identifier)]")
+            print("Is this your private self-chat? Type yes to use it: ", terminator: "")
+            guard readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "yes" else {
+                throw CLIError("Pairing cancelled; no chat was saved.")
+            }
+            let configURL = try stateURL("control-chat-id.txt")
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try String(matchedChat.id.rawValue).write(to: configURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
+            print("Self-chat paired. Start with ./scripts/start.sh.")
+
         case "echo":
             guard let rawChatID = takeOption("--chat-id", from: &arguments),
                   let chatID = Int64(rawChatID) else {
@@ -149,9 +184,11 @@ struct AssistantCLI {
         case "serve":
             let model = takeOption("--model", from: &arguments)
             guard model == nil || model == "apple" else { throw CLIError("The supported local model is --model apple.") }
-            guard let rawChatID = takeOption("--control-chat-id", from: &arguments),
+            let configuredChatID = try? String(contentsOf: stateURL("control-chat-id.txt"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let rawChatID = takeOption("--control-chat-id", from: &arguments) ?? configuredChatID,
                   let chatID = Int64(rawChatID), chatID > 0 else {
-                throw CLIError("serve requires --control-chat-id <positive integer>")
+                throw CLIError("No self-chat paired. Run ./scripts/start.sh or pass --control-chat-id <id>.")
             }
             let hostLock = try HostLock(fileURL: try stateURL("host.lock"))
             defer { withExtendedLifetime(hostLock) {} }
@@ -472,8 +509,9 @@ struct AssistantCLI {
         Usage:
           assistantctl doctor [--imsg <path>]
           assistantctl chats [--imsg <path>]
+          assistantctl pair-chat [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
-          assistantctl serve --control-chat-id <id> [--model apple] [--imsg <path>]
+          assistantctl serve [--control-chat-id <id>] [--model apple] [--imsg <path>]
           assistantctl pair-phone [--host <local-hostname-or-LAN-IP>]
           assistantctl unpair-phone
           assistantctl model-status
