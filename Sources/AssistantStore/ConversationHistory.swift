@@ -6,9 +6,14 @@ public actor ConversationHistory {
     private let fileURL: URL?
     private var turns: [ChatTurn]
 
-    public init(fileURL: URL? = nil) throws {
+    public init() {
+        fileURL = nil
+        turns = []
+    }
+
+    public init(fileURL: URL) throws {
         self.fileURL = fileURL
-        if let fileURL, FileManager.default.fileExists(atPath: fileURL.path) {
+        if FileManager.default.fileExists(atPath: fileURL.path) {
             turns = try JSONDecoder().decode([ChatTurn].self, from: Data(contentsOf: fileURL))
         } else {
             turns = []
