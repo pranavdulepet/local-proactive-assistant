@@ -22,25 +22,19 @@ The first run checks prerequisites, builds the local worker, and asks you to sen
 pairing code to your iMessage self-chat. Confirm the chat it finds. Later runs reuse that choice.
 You must grant macOS Full Disk Access to your terminal and Automation permission for Messages
 when prompted. Apple model answers require Apple silicon, macOS 26+, Apple Intelligence enabled,
-and Xcode 26+. Alternatively, run your own model through a loopback-only local server. The Mac must stay awake with
-the host running. See [the guided setup](docs/local-models.md).
+and Xcode 26+. For a larger open-weight model selected for the Mac's memory, use `bash scripts/start-open-model.sh` instead. On a 48 GB Mac it downloads Qwen3.8 27B (about 18 GB) once and serves it locally. The Mac must stay awake with the host running. See [the guided setup](docs/local-models.md).
 
-## Bring your own local model
+## Mac model choices
 
-Run a model on the Mac with a local server that implements `/v1/chat/completions`
-and `/v1/models` (for example, Ollama). Then start with:
+`bash scripts/start.sh` uses Apple's on-device model, already available on supported Macs. For an open-weight model, run:
 
 ```bash
-ollama pull gemma3:4b
-ASSISTANT_MODEL=local ASSISTANT_MODEL_NAME=gemma3:4b bash scripts/start.sh
+bash scripts/start-open-model.sh
 ```
 
-The default local endpoint is `http://127.0.0.1:11434/v1`. Set
-`ASSISTANT_MODEL_URL` for another local port. Only literal loopback HTTP URLs
-(`127.0.0.1` or `::1`) are accepted; redirects are blocked. No API key or
-cloud model is used. Choose a model your Mac can run; the assistant does not
-download weights for you. Personal evidence remains on the Mac and is sent
-only to the chosen local process. Apple Intelligence remains the default model.
+That starter installs the Ollama CLI with Homebrew if needed, starts a loopback server, downloads a model once, and launches the same Messages assistant. It selects Qwen3.8 27B Q4 on Macs with at least 40 GB memory (about 18 GB of weights), Qwen3.5 9B on 16–39 GB, and Qwen3.5 4B on 12–15 GB. Set `ASSISTANT_OPEN_MODEL=<an Ollama local model tag>` to override. Restart the assistant to switch back with `bash scripts/start.sh`. Only one host should run at a time.
+
+For other model runtimes, use `ASSISTANT_MODEL=local ASSISTANT_MODEL_NAME=<loaded model> ASSISTANT_MODEL_URL=http://127.0.0.1:<port>/v1 bash scripts/start.sh`. The runtime must implement `/v1/chat/completions` and `/v1/models`. “OpenAI-compatible” names the local wire format, not a cloud provider. Literal loopback HTTP URLs are required and redirects are blocked. A user-supplied local proxy may itself forward requests; choose a runtime that stays offline if that matters to you. The open-model starter uses local Ollama tags and needs network only to download weights. Set `ASSISTANT_LOCAL_REASONING_EFFORT=none` for a compatible quick-chat model; the open-model starter does this by default.
 
 ## Current stage: Messages assistant with paired phone context
 
@@ -131,7 +125,7 @@ swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo and control services never
-choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The host sends one final answer per turn and queues follow-ups; commands and direct Calendar agendas can answer while generation is running. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Because the Mac sends from your own iMessage account, replies appear as outgoing blue bubbles. A [separate assistant identity](https://github.com/pranavdulepet/local-proactive-assistant/issues/28) is the intended long-term conversation UX. Send `/help` in the control chat to list commands.
+choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The host sends one final answer per turn and queues follow-ups; commands and direct Calendar agendas can answer while generation is running. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Because the Mac sends from your own iMessage account to your self-chat, some replies appear as outgoing blue bubbles; the same conversation can also render gray on the phone depending on the address and route Messages uses. A [separate assistant identity](https://github.com/pranavdulepet/local-proactive-assistant/issues/28) is the intended long-term conversation UX. Send `/help` in the control chat to list commands.
 
 `serve` refreshes Messages and commitments every 60 seconds after each completed scan, and
 Calendar/Contacts every 15 minutes. Reminders start paused. `/resume` enables the one M1 rule;
