@@ -602,7 +602,10 @@ struct AssistantCLI {
             guard let url, let parsed = URL(string: url), let name else {
                 throw CLIError("Local model needs --model-url http://127.0.0.1:<port>/v1 and --model-name <installed-model>.")
             }
-            return try LoopbackModelProvider(baseURL: parsed, modelName: name)
+            return try LoopbackModelProvider(
+                baseURL: parsed, modelName: name,
+                reasoningEffort: ProcessInfo.processInfo.environment["ASSISTANT_LOCAL_REASONING_EFFORT"]
+            )
         default:
             throw CLIError("Use --model apple or --model local.")
         }
