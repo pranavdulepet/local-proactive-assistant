@@ -447,8 +447,9 @@ private struct IMsgMessage: Decodable {
     }
 }
 
-public struct PollingIMsgTransport: MessageTransport, Sendable {
+public actor PollingIMsgTransport: MessageTransport {
     private let base: IMsgTransport
+    private var sendTail: Task<Void, Never>?
 
     public init(base: IMsgTransport) {
         self.base = base
@@ -457,7 +458,7 @@ public struct PollingIMsgTransport: MessageTransport, Sendable {
     public func probe() async -> TransportHealth { await base.probe() }
     public func chats() async throws -> [TransportChat] { try await base.chats() }
 
-    public func subscribe(
+    public nonisolated func subscribe(
         chatID: TransportChatID,
         after cursor: TransportCursor?
     ) -> AsyncThrowingStream<InboundTransportMessage, Error> {
@@ -468,6 +469,15 @@ public struct PollingIMsgTransport: MessageTransport, Sendable {
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
     ) async throws -> SendReceipt {
-        try await base.send(message, to: chatID)
+        // imsg's mutation lane is per RPC child. This shared actor serializes sends
+        // across owner routes, model answers, and reminders even though each call
+        // launches its own child.
+        let previous = sendTail
+        let operation = Task { () throws -> SendReceipt in
+            if let previous { await previous.value }
+            return try await base.send(message, to: chatID)
+        }
+        sendTail = Task { _ = try? await operation.value }
+        return try await operation.value
     }
 }
