@@ -255,6 +255,15 @@ struct AssistantCLI {
             print("Owner routes: " + selfChats.map { String($0.id.rawValue) }.joined(separator: ", "))
             let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
+            let pendingChats = await ledger.pendingRecoveryChatIDs()
+            for route in selfChats where pendingChats.contains(route.id) {
+                let saved = await cursorStore.cursor(for: route.id) ?? TransportCursor(rawValue: 0)
+                let latest = try await transport.latestChatCursor(in: route.id, after: saved)
+                try await cursorStore.advance(chatID: route.id, to: latest)
+                try await ledger.markRecovered(chatID: route.id)
+                print("Chat \(route.id.rawValue): recovered an earlier unconfirmed send; "
+                    + "skipped through row \(latest.rawValue) without resending. Text again if needed.")
+            }
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
             try await store.recoverInterruptedReminders()
             let phoneSync: PhoneSyncServer?
