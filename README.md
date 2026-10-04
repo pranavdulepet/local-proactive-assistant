@@ -11,6 +11,8 @@ External action tools are absent.
 
 For the shortest setup path, see [docs/local-models.md](docs/local-models.md): install the
 Mac worker, check the local model, ask an indexed question, then run the iPhone app from Xcode.
+Everyday conversation stays in your private Messages self-chat. The phone app is an optional
+companion for phone sources and local testing; its sources do not yet sync to the Mac.
 The core host still runs on macOS 14+; model inference needs an Apple Intelligence-capable
 device, macOS/iOS 26+, Apple Intelligence enabled, and Xcode 26+ to build.
 

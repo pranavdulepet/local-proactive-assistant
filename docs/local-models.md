@@ -45,6 +45,11 @@ routes remain deterministic. A question receives an acknowledgment and a later a
 one question is allowed in flight and owner commands keep working. Failed or uncertain answer
 submissions are not retried automatically. Questions do not unpause reminders.
 
+For everyday use, open Messages on your phone and use the same private self-chat you validated
+during setup. Send `What is on my calendar tomorrow?` directly; `/ask` is optional for messages
+ending in `?`. The Mac retrieves its indexed evidence and answers in that conversation. Keep
+the Mac awake and `serve` running. You do not need the phone companion open for this path.
+
 For person-specific context, use an exact name or handle:
 
 ```bash
@@ -67,9 +72,14 @@ availability. Optional HealthKit access needs a provisioning profile that permit
 if your team cannot provision it, remove that capability for a model/Calendar/Contacts-only pilot
 and leave sleep context disabled.
 
-Start with **Demo → Ask locally**. The only supplied fact is a public project deadline of Friday
-at 5 PM. Check the generated answer and visible citation. Then select **This phone**, explicitly
-allow the sources you want, and enable their toggles. Calendar is limited to the next seven days;
+The phone companion opens with the Messages instructions. It is optional for everyday chat.
+**Phone sources** controls Calendar, Contacts and sleep access for on-phone answers only; these
+sources are not yet synced to the Mac or used by the Messages assistant.
+
+For a separate phone-local test, open **Advanced → On-phone model tools** and start with
+**Demo → Ask locally**. The only supplied fact is a public project deadline of Friday
+at 5 PM. Check the generated answer and visible citation. Then select **This phone** and open
+**Choose phone sources** to enable the sources you want. Calendar is limited to the next seven days;
 Contacts supplies only one unambiguous exact-name match. Sleep supplies a derived seven-day total
 of available asleep intervals, merging overlaps and clipping the window. Missing/denied data is
 not treated as zero sleep, a diagnosis or proof of read authorization. Raw samples stay on phone.
@@ -92,7 +102,8 @@ eight excerpts with provenance and coverage, not the database. It is private dat
 through a transfer you select, such as AirDrop. Open it in Local Assistant or choose **Import Mac
 context** in the app. The phone’s model runs locally over those records. The original export time
 and a snapshot warning stay visible; asking again does not make the sources fresh. Delete the
-export when finished. Exported context files are ignored by git.
+export when finished. Exported context files are ignored by git. The import control is under
+**Advanced → On-phone model tools**; opening a context file directly takes you to those tools.
 
 This is explicit snapshot transfer, not authenticated live device sync. It does not implement
 Bonjour pairing, keychain credentials, HTTPS delivery/acknowledgment, an offline derived-event
