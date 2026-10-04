@@ -33,8 +33,9 @@ struct CalendarAgendaServiceTests {
 
         let reply = try #require(try await handler.response(to: "What is on my calendar tomorrow?"))
         #expect(reply.contains("Team sync"))
-        #expect(reply.contains("eventkit:event-1"))
-        #expect(reply.contains("Calendar partial"))
+        #expect(reply.contains("— Team sync"))
+        #expect(!reply.contains("eventkit:"))
+        #expect(reply.contains("Calendar data may be incomplete"))
         #expect(!reply.contains("model should not answer"))
         #expect(try await handler.response(to: "/ask what is on my calendar tomorrow") == reply)
         #expect(try await handler.response(to: "What is on my calendar tmr") == reply)
@@ -51,8 +52,8 @@ struct CalendarAgendaServiceTests {
         let reply = try #require(try await CalendarAgendaService(
             store: store, clock: { now }
         ).response(to: "What's on my schedule today?"))
-        #expect(reply.contains("No indexed Calendar events start today."))
-        #expect(reply.contains("Calendar partial"))
-        #expect(reply.contains("Deleted events are not yet reconciled."))
+        #expect(reply.contains("I don't see any events starting today."))
+        #expect(reply.contains("Calendar data may be incomplete"))
+        #expect(!reply.contains("Deleted events are not yet reconciled."))
     }
 }

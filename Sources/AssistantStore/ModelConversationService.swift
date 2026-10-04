@@ -58,6 +58,8 @@ public actor ModelConversationService {
             let previous = await history.lastUserMessage()
             let query = Self.retrievalQuery(message, previous: previous)
             let request = try await EvidenceRetriever(store: store).request(question: query)
+            let retrievedAt = Date()
+            print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
             if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
                !request.records.isEmpty {
                 reply = try await AnswerService(provider: provider).answer(request).text
@@ -70,6 +72,7 @@ public actor ModelConversationService {
                 reply = try await provider.chat(chat).text
             }
             try Task.checkCancellation()
+            print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
         } catch is CancellationError {
             return
         } catch {
@@ -77,9 +80,11 @@ public actor ModelConversationService {
         }
         print("local answer prepared in \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)")
         let outbound = OutboundTransportMessage(text: reply)
+        var sendStarted = false
         do {
             try await ledger.begin(requestID: outbound.requestID, chatID: chatID, text: outbound.text)
             // Recipient is fixed by verified host configuration, never model output.
+            sendStarted = true
             let receipt = try await transport.send(outbound, to: chatID)
             try await ledger.confirm(requestID: outbound.requestID, messageGUID: receipt.messageGUID)
             try await history.append(user: message, assistant: reply)
@@ -89,6 +94,9 @@ public actor ModelConversationService {
             print("chat \(chatID.rawValue): local answer send did not start")
         } catch {
             try? await ledger.markRecovered(requestID: outbound.requestID)
+            // The transport may have delivered the reply before its confirmation timed out.
+            // Keep the turn so the next queued question can refer to it.
+            if sendStarted { try? await history.append(user: message, assistant: reply) }
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
     }
