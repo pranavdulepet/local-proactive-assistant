@@ -21,7 +21,7 @@ public enum SelfChatRoutes {
     private static func canonical(_ raw: String) -> String? {
         guard let handle = PersonHandle.normalize(raw) else { return nil }
         if !handle.contains("@") {
-            let digits = handle.filter(\\.isNumber)
+            let digits = handle.filter(\.isNumber)
             if digits.count == 10 { return "+1" + digits }
             if digits.count == 11 && digits.hasPrefix("1") { return "+" + digits }
         }
