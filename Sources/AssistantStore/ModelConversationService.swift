@@ -2,28 +2,34 @@ import AssistantCore
 import Foundation
 import LocalInference
 
-/// One foreground question at a time. Generation never holds up the command listener.
+/// One foreground answer per route. Generation never holds up the command listener.
 public actor ModelConversationService {
     private let store: ObservationStore
     private let provider: any LocalModelProvider
     private let transport: any MessageTransport
     private let ledger: OutboundLedger
     private let chatID: TransportChatID
+    private let history: ConversationHistory
     private var active: Task<Void, Never>?
 
-    public init(store: ObservationStore, provider: any LocalModelProvider, transport: any MessageTransport, ledger: OutboundLedger, chatID: TransportChatID) {
+    public init(
+        store: ObservationStore, provider: any LocalModelProvider,
+        transport: any MessageTransport, ledger: OutboundLedger,
+        chatID: TransportChatID, history: ConversationHistory? = nil
+    ) {
         self.store = store
         self.provider = provider
         self.transport = transport
         self.ledger = ledger
         self.chatID = chatID
+        self.history = history ?? (try! ConversationHistory())
     }
 
     public func begin(question: String) -> String {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              question.utf8.count <= 512 else { return "Ask a question of at most 512 bytes." }
+              question.utf8.count <= 512 else { return "Send a message of at most 512 bytes." }
         guard active == nil else { return "A local answer is already in progress. Owner commands still work." }
-        active = Task { await self.run(question: question) }
+        active = Task { await self.run(message: question) }
         return "Let me check."
     }
 
@@ -31,22 +37,49 @@ public actor ModelConversationService {
         active?.cancel()
     }
 
-    private func run(question: String) async {
+    private func run(message: String) async {
         defer { active = nil }
+        let reply: String
         do {
-            let request = try await EvidenceRetriever(store: store).request(question: question)
-            let result = try await AnswerService(provider: provider).answer(request)
+            let previous = await history.lastUserMessage()
+            let query = Self.retrievalQuery(message, previous: previous)
+            let request = try await EvidenceRetriever(store: store).request(question: query)
+            if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
+               !request.records.isEmpty {
+                reply = try await AnswerService(provider: provider).answer(request).text
+            } else {
+                let chat = ChatRequest(
+                    message: message, history: await history.recent(),
+                    records: request.records, coverage: request.coverage
+                )
+                try chat.validate()
+                reply = try await provider.chat(chat).text
+            }
             try Task.checkCancellation()
-            let message = OutboundTransportMessage(text: result.text)
-            try await ledger.begin(requestID: message.requestID, chatID: chatID, text: message.text)
-            // The recipient comes from host configuration, never model output. No ambiguous-send retry.
-            let receipt = try await transport.send(message, to: chatID)
-            try await ledger.confirm(requestID: message.requestID, messageGUID: receipt.messageGUID)
-            print("local answer submitted (not a delivery confirmation)")
         } catch is CancellationError {
             return
         } catch {
-            print("local answer could not be submitted; check model-status and source-status before asking again")
+            reply = "I couldn't answer locally right now. Check model-status on the Mac and try again."
         }
+        do {
+            let outbound = OutboundTransportMessage(text: reply)
+            try await ledger.begin(requestID: outbound.requestID, chatID: chatID, text: outbound.text)
+            // Recipient is fixed by verified host configuration, never model output.
+            let receipt = try await transport.send(outbound, to: chatID)
+            try await ledger.confirm(requestID: outbound.requestID, messageGUID: receipt.messageGUID)
+            try await history.append(user: message, assistant: reply)
+            print("local answer submitted (not a delivery confirmation)")
+        } catch {
+            print("local answer send outcome unknown; no automatic resend")
+        }
+    }
+
+    private static func retrievalQuery(_ message: String, previous: String?) -> String {
+        let lower = message.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let follows = lower.hasPrefix("and ") || lower.hasPrefix("what about")
+            || lower.hasPrefix("tell me more") || lower.hasPrefix("when is it")
+            || lower.hasPrefix("who is that")
+        guard follows, let previous else { return message }
+        return EvidenceText.bounded(previous + " " + message, bytes: 512)
     }
 }
