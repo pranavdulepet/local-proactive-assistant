@@ -1,5 +1,6 @@
 import AssistantCore
 import Foundation
+import LocalInference
 
 /// Decide when the owner's current turn needs indexed personal evidence.
 /// The model still handles ordinary dialogue using the recent transcript.
