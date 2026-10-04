@@ -8,6 +8,23 @@ companion. **Messages is the only conversation interface.** Apple's system model
 Mac. The phone pairs with the Mac and shares selected derived sleep context; it has no demo,
 context import, or separate chat UI.
 
+## Quick start
+
+On a Mac signed into Messages, clone the repository and run the guided starter:
+
+```bash
+git clone https://github.com/pranavdulepet/local-proactive-assistant.git
+cd local-proactive-assistant
+bash scripts/start.sh
+```
+
+The first run checks prerequisites, builds the local worker, and asks you to send a one-time
+pairing code to your iMessage self-chat. Confirm the chat it finds. Later runs reuse that choice.
+You must grant macOS Full Disk Access to your terminal and Automation permission for Messages
+when prompted. Apple model answers require Apple silicon, macOS 26+, Apple Intelligence enabled,
+and Xcode 26+; other Macs can run the deterministic owner commands. The Mac must stay awake with
+the host running. See [the guided setup](docs/local-models.md).
+
 ## Current stage: Messages assistant with paired phone context
 
 See [docs/local-models.md](docs/local-models.md) for setup. Install the Mac worker, start the host,
@@ -28,7 +45,7 @@ iPhone self-chat
 Implemented now:
 
 - a small `MessageTransport` boundary;
-- an `imsg` adapter for chat listing, JSON-RPC watching, health checks, and sending;
+- an `imsg` adapter for chat listing, JSON-RPC watching, paged history catchup for owner commands, health checks, and sending;
 - exact-chat filtering, durable per-chat cursors, and automatic resume;
 - bounded reconnect backoff with visible degraded-state output;
 - outbound GUID/content ledger for self-echo suppression;
@@ -79,7 +96,7 @@ Install `imsg`:
 brew install steipete/tap/imsg
 ```
 
-## Run the P0 loop
+## Developer commands
 
 ```bash
 swift test
