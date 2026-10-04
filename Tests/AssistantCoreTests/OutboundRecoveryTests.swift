@@ -24,7 +24,7 @@ struct OutboundRecoveryTests {
 
         let ledger = try OutboundLedger()
         try await ledger.begin(requestID: requestID, chatID: chat, text: "reply")
-        #expect(await ledger.pendingRecoveryChatIDs() == [chat])
+        #expect(await ledger.pendingRecoveryChatIDs() == Set([chat]))
         try await ledger.markRecovered(chatID: chat)
         #expect(await ledger.pendingRecoveryChatIDs().isEmpty)
         #expect(try await ledger.contains(
