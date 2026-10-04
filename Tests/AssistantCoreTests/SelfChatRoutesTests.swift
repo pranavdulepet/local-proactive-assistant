@@ -19,7 +19,7 @@ struct SelfChatRoutesTests {
         let sms = chat(46, "+14155550123", service: "SMS")
         let routes = SelfChatRoutes.resolve(
             primary: email, available: [other, group, email, phone, sms],
-            ownerHandles: ["SELF@example.com", "+14155550123"]
+            ownerHandles: ["SELF@example.com", "4155550123"]
         )
         #expect(routes.map(\.id.rawValue) == [954, 955])
     }
