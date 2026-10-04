@@ -111,9 +111,11 @@ struct AssistantCLI {
             print("On your iPhone, send \(code) to your private iMessage self-chat.")
             print("Waiting up to two minutes for that exact message...")
             var matchedChat: TransportChat?
+            var matchedCursor: TransportCursor?
             for _ in 0..<60 {
                 let matches = try await transport.matchingMessages(code)
                 if let match = matches.first(where: { $0.isFromMe && $0.createdAt >= started.addingTimeInterval(-5) }) {
+                    matchedCursor = match.cursor
                     matchedChat = try await transport.chats().first {
                         $0.id == match.chatID && !$0.isGroup && $0.service == "iMessage"
                     }
@@ -124,7 +126,9 @@ struct AssistantCLI {
                 }
                 try await Task.sleep(for: .seconds(2))
             }
-            guard let matchedChat else { throw CLIError("No matching self-chat message arrived. Check Messages sync and retry.") }
+            guard let matchedChat, let matchedCursor else {
+                throw CLIError("No matching self-chat message arrived. Check Messages sync and retry.")
+            }
             print("Found direct chat: \(matchedChat.displayName) [\(matchedChat.identifier)]")
             print("Is this your private self-chat? Type yes to use it: ", terminator: "")
             guard readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "yes" else {
@@ -136,6 +140,8 @@ struct AssistantCLI {
             )
             try String(matchedChat.id.rawValue).write(to: configURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
+            let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
+            try await cursorStore.advance(chatID: matchedChat.id, to: matchedCursor)
             print("Self-chat paired. Start with bash scripts/start.sh.")
 
         case "echo":
