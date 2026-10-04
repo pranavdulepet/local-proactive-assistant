@@ -16,7 +16,8 @@ public struct CalendarAgendaService: Sendable {
         guard text.contains("calendar") || text.contains("schedule") else { return nil }
         let dayOffset: Int
         let dayName: String
-        if text.contains("tomorrow") {
+        let words = Set(text.split(whereSeparator: { !$0.isLetter }).map(String.init))
+        if text.contains("tomorrow") || words.contains("tmr") {
             dayOffset = 1
             dayName = "tomorrow"
         } else if text.contains("today") {
