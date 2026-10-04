@@ -30,5 +30,17 @@ struct OutboundRecoveryTests {
         #expect(try await ledger.contains(
             text: "reply", chatID: chat, messageDate: Date()
         ))
+        let filter = ControlMessageFilter(controlChatID: chat, ledger: ledger)
+        let cursor = TransportCursor(rawValue: 100)
+        let echo = InboundTransportMessage(
+            cursor: .init(rawValue: 101), guid: "outbound", chatID: chat,
+            text: "reply", isFromMe: true, createdAt: Date()
+        )
+        let nextQuestion = InboundTransportMessage(
+            cursor: .init(rawValue: 102), guid: "new-question", chatID: chat,
+            text: "What next?", isFromMe: true, createdAt: Date()
+        )
+        #expect(try await filter.evaluate(echo, after: cursor) == .reject(.outboundEcho))
+        #expect(try await filter.evaluate(nextQuestion, after: cursor) == .accept)
     }
 }
