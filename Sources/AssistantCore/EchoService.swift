@@ -92,12 +92,11 @@ public struct EchoService: Sendable {
                                     continue
                                 }
 
+                                // Checkpoint before invoking the handler: model work or a
+                                // state-changing command can begin inside reply().
+                                try await cursorStore.advance(chatID: chatID, to: message.cursor)
+                                lastCursor = max(lastCursor ?? message.cursor, message.cursor)
                                 guard let replyText = try await reply(message.text) else {
-                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
-                                    try await cursorStore.advance(
-                                        chatID: chatID,
-                                        to: message.cursor
-                                    )
                                     continuation.yield(
                                         EchoEvent(
                                             inbound: message,
@@ -114,16 +113,6 @@ public struct EchoService: Sendable {
                                     chatID: chatID,
                                     text: outbound.text
                                 )
-                                // At-most-once delivery: persist the incoming row before dispatch.
-                                // A crash or ambiguous send must never replay this command.
-                                do {
-                                    try await cursorStore.advance(chatID: chatID, to: message.cursor)
-                                } catch {
-                                    try? await ledger.cancel(requestID: outbound.requestID)
-                                    throw error
-                                }
-                                lastCursor = max(lastCursor ?? message.cursor, message.cursor)
-
                                 do {
                                     let receipt = try await transport.send(outbound, to: chatID)
                                     try await ledger.confirm(
