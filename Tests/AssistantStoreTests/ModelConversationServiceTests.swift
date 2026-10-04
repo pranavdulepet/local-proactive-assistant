@@ -31,6 +31,23 @@ struct ModelConversationServiceTests {
         #expect(await saved.recent().count == 2)
     }
 
+    @Test func ambiguousDeliveryKeepsContextForTheNextQuestion() async throws {
+        let history = ConversationHistory()
+        let transport = AnswerTransport(unknownOutcome: true)
+        let service = ModelConversationService(
+            store: try ObservationStore(), provider: TestChatModel(),
+            transport: transport, ledger: try OutboundLedger(),
+            chatID: TransportChatID(rawValue: 954), history: history
+        )
+        #expect(await service.begin(question: "hello") == nil)
+        _ = await transport.waitForSend()
+        for _ in 0..<50 {
+            if await history.lastUserMessage() == "hello" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await history.recent().map(\.text) == ["hello", "Hello from the local model."])
+    }
+
     @Test func slowInferenceKeepsPauseAvailableAndNeverChoosesARecipient() async throws {
         let store = try ObservationStore()
         try await store.record(Observation(source: .messages, externalID: "deadline", versionHash: "v1", sourceRevision: 1, observedAt: Date(), trust: .ownerAuthored, text: "The project deadline is Friday.", locator: "imsg:deadline"))
@@ -81,17 +98,20 @@ private actor WaitingModel: LocalModelProvider {
 }
 
 private actor AnswerTransport: MessageTransport {
+    private let unknownOutcome: Bool
+    init(unknownOutcome: Bool = false) { self.unknownOutcome = unknownOutcome }
     private var sent: [(OutboundTransportMessage, TransportChatID)] = []
     private var waiters: [(Int, CheckedContinuation<(OutboundTransportMessage, TransportChatID), Never>)] = []
     func probe() -> TransportHealth { TransportHealth(ready: true, detail: "test") }
     func chats() -> [TransportChat] { [] }
     nonisolated func subscribe(chatID: TransportChatID, after cursor: TransportCursor?) -> AsyncThrowingStream<InboundTransportMessage, Error> { AsyncThrowingStream { $0.finish() } }
-    func send(_ message: OutboundTransportMessage, to chatID: TransportChatID) -> SendReceipt {
+    func send(_ message: OutboundTransportMessage, to chatID: TransportChatID) throws -> SendReceipt {
         sent.append((message, chatID))
         for (count, waiter) in waiters where sent.count >= count {
             waiter.resume(returning: sent[count - 1])
         }
         waiters.removeAll { sent.count >= $0.0 }
+        if unknownOutcome { throw TransportFailure("send outcome unknown") }
         return SendReceipt(requestID: message.requestID, messageGUID: "test-guid", rowID: 1, transport: "test")
     }
     func waitForSend(count: Int = 1) async -> (OutboundTransportMessage, TransportChatID) {
