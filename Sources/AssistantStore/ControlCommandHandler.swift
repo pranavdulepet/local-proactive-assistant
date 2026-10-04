@@ -19,12 +19,19 @@ public struct ControlCommandHandler: Sendable {
     public func response(to text: String) async throws -> String? {
         guard let command = Command(text) else {
             let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard question.hasSuffix("?"), let answerQuestion else { return nil }
+            guard question.hasSuffix("?") else { return nil }
+            if let agenda = try await CalendarAgendaService(store: store, clock: clock).response(to: question) {
+                return agenda
+            }
+            guard let answerQuestion else { return nil }
             return await answerQuestion(question)
         }
 
         switch command {
         case .ask(let question):
+            if let agenda = try await CalendarAgendaService(store: store, clock: clock).response(to: question) {
+                return agenda
+            }
             guard let answerQuestion else { return "Local answers are disabled. Start serve with --model apple after running scripts/setup-local-model.sh." }
             return await answerQuestion(question)
         case .forgetting:
