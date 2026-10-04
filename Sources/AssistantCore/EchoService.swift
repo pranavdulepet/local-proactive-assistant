@@ -1,18 +1,28 @@
 import Foundation
 
+public enum EchoSendOutcome: Equatable, Sendable {
+    case notAttempted
+    case confirmed
+    case notStarted
+    case uncertain
+}
+
 public struct EchoEvent: Equatable, Sendable {
     public let inbound: InboundTransportMessage
     public let decision: InboundDecision
     public let receipt: SendReceipt?
+    public let sendOutcome: EchoSendOutcome
 
     public init(
         inbound: InboundTransportMessage,
         decision: InboundDecision,
-        receipt: SendReceipt?
+        receipt: SendReceipt?,
+        sendOutcome: EchoSendOutcome = .notAttempted
     ) {
         self.inbound = inbound
         self.decision = decision
         self.receipt = receipt
+        self.sendOutcome = sendOutcome
     }
 }
 
@@ -104,6 +114,15 @@ public struct EchoService: Sendable {
                                     chatID: chatID,
                                     text: outbound.text
                                 )
+                                // At-most-once delivery: persist the incoming row before dispatch.
+                                // A crash or ambiguous send must never replay this command.
+                                do {
+                                    try await cursorStore.advance(chatID: chatID, to: message.cursor)
+                                } catch {
+                                    try? await ledger.cancel(requestID: outbound.requestID)
+                                    throw error
+                                }
+                                lastCursor = max(lastCursor ?? message.cursor, message.cursor)
 
                                 do {
                                     let receipt = try await transport.send(outbound, to: chatID)
@@ -111,21 +130,35 @@ public struct EchoService: Sendable {
                                         requestID: outbound.requestID,
                                         messageGUID: receipt.messageGUID
                                     )
-                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
-                                    try await cursorStore.advance(
-                                        chatID: chatID,
-                                        to: message.cursor
-                                    )
                                     continuation.yield(
                                         EchoEvent(
                                             inbound: message,
                                             decision: .accept,
-                                            receipt: receipt
+                                            receipt: receipt,
+                                            sendOutcome: .confirmed
                                         )
                                     )
                                 } catch let failure as TransportFailure where failure.retrySafe {
                                     try await ledger.cancel(requestID: outbound.requestID)
-                                    throw failure
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: .accept,
+                                            receipt: nil,
+                                            sendOutcome: .notStarted
+                                        )
+                                    )
+                                } catch {
+                                    // The send may already be visible on the phone. Keep the
+                                    // ledger entry for echo suppression and keep listening.
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: .accept,
+                                            receipt: nil,
+                                            sendOutcome: .uncertain
+                                        )
+                                    )
                                 }
                             }
 
