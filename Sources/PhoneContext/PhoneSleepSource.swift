@@ -19,7 +19,8 @@ actor PhoneSleepSource {
         if let observer { store.stop(observer) }
         let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completion, error in
             guard error == nil else { completion(); return }
-            Task { await handler(); completion() }
+            let delivery = HealthDeliveryCompletion(completion)
+            Task { await handler(); delivery.finish() }
         }
         observer = query
         store.execute(query)
@@ -71,5 +72,11 @@ actor PhoneSleepSource {
             locator: "phone-health:sleep-summary-seven-days", trust: "derivedSummary"),
             "Health: derived sleep total only; raw samples stay on this phone. \(item.sampleLimitReached ? "Partial: 1,000-sample limit reached." : "Visible samples only; missing data is not zero sleep.")")
     }
+}
+// HealthKit's completion may run on any queue; ownership is transferred to one task.
+private final class HealthDeliveryCompletion: @unchecked Sendable {
+    private let completion: () -> Void
+    init(_ completion: @escaping () -> Void) { self.completion = completion }
+    func finish() { completion() }
 }
 #endif

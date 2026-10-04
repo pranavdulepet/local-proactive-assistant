@@ -53,7 +53,9 @@ struct AssistantView: View {
             .onOpenURL { model.receivePairing($0) }
             .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.activate() } } }
             .alert("Pair with your Mac?", isPresented: Binding(get: { model.pendingPairing != nil }, set: { if !$0 { model.pendingPairing = nil } })) {
-                Button("Pair") { Task { await model.confirmPairing() } }
+                Button("Pair") {
+                    if let pairing = model.pendingPairing { Task { await model.confirmPairing(pairing) } }
+                }
                 Button("Cancel", role: .cancel) { model.pendingPairing = nil }
             } message: {
                 if let pending = model.pendingPairing {

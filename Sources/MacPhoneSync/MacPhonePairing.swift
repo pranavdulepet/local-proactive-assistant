@@ -50,9 +50,14 @@ public struct MacPhoneIdentity: Codable, Sendable {
         let filter = CIFilter(name: "CIQRCodeGenerator")!
         filter.setValue(Data(try pairing.qrURL().absoluteString.utf8), forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let image = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
-              let cg = CIContext().createCGImage(image, from: image.extent),
-              let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { throw PhoneSyncFailure("Could not show the pairing QR code.") }
+        guard let image = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else {
+            throw PhoneSyncFailure("Could not show the pairing QR code.")
+        }
+        let padded = image.composited(over: CIImage(color: .white).cropped(to: image.extent.insetBy(dx: -32, dy: -32)))
+        guard let cg = CIContext().createCGImage(padded, from: padded.extent),
+              let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else {
+            throw PhoneSyncFailure("Could not show the pairing QR code.")
+        }
         try png.write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         NSWorkspace.shared.open(url)

@@ -27,8 +27,7 @@ final class AssistantViewModel {
         catch { notice = "Scan the pairing QR code displayed by your own Mac." }
     }
 
-    func confirmPairing() async {
-        guard let pendingPairing else { return }
+    func confirmPairing(_ pendingPairing: PhonePairing) async {
         do {
             try await PhoneUploadClient.shared.pair(pendingPairing)
             self.pendingPairing = nil
