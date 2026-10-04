@@ -138,10 +138,10 @@ struct AssistantCLI {
             try FileManager.default.createDirectory(
                 at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            try String(matchedChat.id.rawValue).write(to: configURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             try await cursorStore.advance(chatID: matchedChat.id, to: matchedCursor)
+            try String(matchedChat.id.rawValue).write(to: configURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
             print("Self-chat paired. Start with bash scripts/start.sh.")
 
         case "echo":
