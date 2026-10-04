@@ -1,6 +1,7 @@
 import CSQLite
 import AssistantCore
 import Foundation
+import PhoneSync
 
 public struct ObservationStoreFailure: Error, CustomStringConvertible, Sendable {
     public let description: String
@@ -53,6 +54,39 @@ public actor ObservationStore {
         }
 
         connection = SQLiteConnection(handle: database)
+    }
+
+    /// Persist a snapshot and its sequence together before acknowledging the phone.
+    public func acceptPhoneContext(_ envelope: PhoneSyncEnvelope) throws -> Int64 {
+        try envelope.validate()
+        let cursorParts = try sourceCursor(for: .health)?.split(separator: ":") ?? []
+        if cursorParts.count == 2, cursorParts[0] == envelope.deviceID.uuidString,
+           let previous = Int64(cursorParts[1]), envelope.sequence <= previous { return previous }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let formatter = ISO8601DateFormatter()
+            for hours in [24, 168] {
+                let item = envelope.sleep.first { $0.windowHours == hours }
+                let minutes = item?.recordedMinutes
+                let text: String
+                if let item, let minutes {
+                    text = "Recorded sleep over the last \(hours) hours, \(formatter.string(from: item.start)) through \(formatter.string(from: item.end)): \(String(format: "%.1f", minutes / 60)) hours. Overlapping asleep intervals were merged. \(item.sampleLimitReached ? "Partial: sample limit reached." : "Visible samples only.") This is recorded time, not sleep quality or a diagnosis."
+                } else { text = "" }
+                let observation = Observation(source: .health, externalID: "phone-sleep:\(hours)",
+                    versionHash: "\(envelope.deviceID):\(envelope.sequence):\(hours)", sourceRevision: (try current(source: .health, externalID: "phone-sleep:\(hours)"))?.sourceRevision.advanced(by: 1) ?? 1,
+                    sourceTimestamp: envelope.createdAt, trust: .structuredSource, text: text,
+                    locator: "phone-health:sleep-\(hours)h", tombstone: minutes == nil || !envelope.sleepEnabled)
+                _ = try recordInsideTransaction(observation)
+            }
+            try saveCursor("\(envelope.deviceID.uuidString):\(envelope.sequence)", for: .health)
+            let detail = envelope.sleepEnabled
+                ? "Derived phone sleep summaries only; raw samples stay on the phone. No readable samples may mean missing data or denied read access; it does not mean zero sleep. Collected \(formatter.string(from: envelope.createdAt))."
+                : "Phone sleep sharing is disabled."
+            try refreshCoverage(for: .health, status: envelope.sleepEnabled ? .partial : .unavailable,
+                limitations: [detail], at: Date())
+            try execute("COMMIT")
+            return envelope.sequence
+        } catch { try? execute("ROLLBACK"); throw error }
     }
 
     @discardableResult

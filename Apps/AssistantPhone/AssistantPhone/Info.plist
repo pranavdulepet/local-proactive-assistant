@@ -1,28 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-    <key>CFBundleDisplayName</key><string>Local Assistant</string>
-    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-    <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
-    <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
-    <key>UILaunchScreen</key><dict/>
-    <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
-    <key>NSCalendarsFullAccessUsageDescription</key><string>Read selected upcoming Calendar context for answers on this phone.</string>
-    <key>NSContactsUsageDescription</key><string>Find one exact person for your local question.</string>
-    <key>NSHealthShareUsageDescription</key><string>Summarize recorded sleep time on this phone. Raw samples are never sent to the Mac or an AI server.</string>
-    <key>UTExportedTypeDeclarations</key><array><dict>
-        <key>UTTypeIdentifier</key><string>org.localproactiveassistant.context</string>
-        <key>UTTypeDescription</key><string>Local Assistant Context</string>
-        <key>UTTypeConformsTo</key><array><string>public.json</string></array>
-        <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>lpa-context</string></array></dict>
-    </dict></array>
-    <key>CFBundleDocumentTypes</key><array><dict>
-        <key>CFBundleTypeName</key><string>Local Assistant Context</string>
-        <key>CFBundleTypeRole</key><string>Viewer</string>
-        <key>LSHandlerRank</key><string>Owner</string>
-        <key>LSItemContentTypes</key><array><string>org.localproactiveassistant.context</string></array>
-    </dict></array>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Local Assistant</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Read recorded sleep and share derived totals with your paired Mac. Raw Health samples stay on this phone.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Local Assistant Pairing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>localassistant</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your paired Mac to share derived phone context for your Messages assistant.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lpa-sync._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

@@ -3,6 +3,7 @@ import ContactsAdapter
 import EventKitAdapter
 import Foundation
 import LocalInference
+import PhoneSync
 
 public actor PhoneContextSource {
     private let calendar = EventKitCalendarSource()
@@ -19,6 +20,28 @@ public actor PhoneContextSource {
         try await sleep.requestAccess()
         #else
         throw LocalModelFailure("Sleep context is available on iPhone only.")
+        #endif
+    }
+
+    public func sleepDigests(now: Date = Date()) async throws -> [PhoneSleepDigest] {
+        #if os(iOS)
+        return try await sleep.digests(now: now)
+        #else
+        return []
+        #endif
+    }
+
+    public func startSleepUpdates(_ handler: @escaping @Sendable () async -> Void) async -> Bool {
+        #if os(iOS)
+        return await sleep.startUpdates(handler)
+        #else
+        return false
+        #endif
+    }
+
+    public func stopSleepUpdates() async {
+        #if os(iOS)
+        await sleep.stopUpdates()
         #endif
     }
 

@@ -3,16 +3,17 @@
 A local-first macOS assistant that tracks loose ends and eventually sends a small number of evidence-backed iMessages. Personal-source indexing and model inference stay on user-controlled Apple hardware.
 
 This repository started with a reliable self-chat transport loop. It now has read-only
-Messages, Calendar and Contacts ingestion, bounded on-device answers on the Mac, and a native
-iPhone app with the same model contract. Apple’s system model is the first runtime, as planned.
-External action tools are absent.
+Messages, Calendar and Contacts ingestion, bounded Mac-local answers, and a phone source
+companion. **Messages is the only conversation interface.** Apple's system model answers on the
+Mac. The phone pairs with the Mac and shares selected derived sleep context; it has no demo,
+context import, or separate chat UI.
 
-## Current stage: local-model pilot on Mac and iPhone
+## Current stage: Messages assistant with paired phone context
 
-For the shortest setup path, see [docs/local-models.md](docs/local-models.md): install the
-Mac worker, check the local model, ask an indexed question, then run the iPhone app from Xcode.
-The core host still runs on macOS 14+; model inference needs an Apple Intelligence-capable
-device, macOS/iOS 26+, Apple Intelligence enabled, and Xcode 26+ to build.
+See [docs/local-models.md](docs/local-models.md) for setup. Install the Mac worker, start the host,
+and text your private Messages self-chat. Pair the optional phone companion once to include
+derived sleep summaries. Mac generation needs Apple Intelligence support and macOS 26+; the
+source companion supports iOS 17+. Build with Xcode 26+.
 
 The first slice:
 
@@ -51,8 +52,8 @@ Implemented now:
 - a small `LocalModelProvider` contract, bounded evidence documents and validated citation IDs;
 - Apple on-device structured generation with deterministic evidence-only fallback;
 - a signed sandboxed Mac model worker, question CLI and nonblocking `/ask` owner commands;
-- a native iPhone app for phone-local questions and explicit Mac context snapshot import;
-- explicit phone Calendar/Contacts access and optional derived HealthKit sleep context;
+- a phone companion for QR pairing and optional derived HealthKit sleep sharing;
+- pinned HTTPS, Keychain pairing credentials, durable phone upload queue and Mac acknowledgment;
 - macOS tests, worker isolation checks and simulator/device iOS builds in CI.
 
 `imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
@@ -122,20 +123,14 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 
 ## Near-term plan
 
-1. Run the local-model pilot on physical Mac and iPhone hardware. Review claim support,
-   latency, abstention and offline behavior before enabling broader AI extraction.
-2. Dogfood the narrow assistant and measure grounded-answer quality and interruption usefulness
-   before expanding sources, models or proactive rules.
-3. Ship signed native host/login-item support for unattended use; do not substitute shell
-   LaunchAgent installation for the planned application lifecycle.
-4. Finish the later phone connectivity milestone: authenticated pairing, bounded derived-event
-   queue, HTTPS sync and freshness, then optional location. The current phone app runs its own
-   local model and reads explicitly enabled local sources; context import is a manual snapshot.
+1. Use the assistant in Messages and connect the phone companion's sleep source. Review grounded
+   answer usefulness, freshness and real network delivery while dogfooding.
+2. Ship signed native host/login-item support so the Mac host does not need a foreground terminal.
+3. Add optional location, Mail or another model only when a concrete use case requires it.
 
-Mail, broad Messages reconciliation, embeddings and additional model runtimes remain later
-work, not prerequisites silently added to M1. A second `platform-imessage` adapter is justified
-only by a measured transport gap. MLX/llama.cpp and embeddings remain evaluation-driven
-additions. This pilot does not claim background phone sync or unattended host lifecycle.
+The phone queues updates when the Mac is unreachable and uses no cloud relay. Model inference,
+source storage, and reduction stay on user-controlled devices. This does not claim unattended
+Mac lifecycle or immediate phone refresh while offline.
 
 ## License
 

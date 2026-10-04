@@ -21,6 +21,8 @@ public struct EvidenceRetriever: Sendable {
                     observations.append(evidence.observation)
                 }
             }
+        } else if normalized.contains("sleep") || normalized.contains("slept") {
+            observations = try await store.currentObservations(source: .health, trust: .structuredSource, limit: 2)
         } else if normalized.contains("calendar") || normalized.contains("schedule") {
             let calendar = Calendar.autoupdatingCurrent
             let start = normalized.contains("tomorrow")
@@ -42,6 +44,10 @@ public struct EvidenceRetriever: Sendable {
                 text: EvidenceText.bounded(item.text, bytes: 768), locator: EvidenceText.bounded(item.locator, bytes: 256), trust: item.trust.rawValue)
         }
         var coverage: [String] = []
+        if normalized.contains("sleep") || normalized.contains("slept") {
+            let formatter = ISO8601DateFormatter()
+            coverage.append("Current time: \(formatter.string(from: now)). Sleep summaries cover explicit rolling windows, not a particular night. Describe older collected summaries as snapshots, never as current measurements.")
+        }
         for source in ObservationSource.allCases {
             if let state = try await store.sourceCoverage(for: source) {
                 let timestamp = ISO8601DateFormatter().string(from: state.lastSuccessfulSync)

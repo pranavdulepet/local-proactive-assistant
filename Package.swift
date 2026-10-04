@@ -10,6 +10,7 @@ let package = Package(
         .library(name: "AssistantStore", targets: ["AssistantStore"]),
         .library(name: "LocalInference", targets: ["LocalInference"]),
         .library(name: "AppleModelAdapter", targets: ["AppleModelAdapter"]),
+        .library(name: "PhoneSync", targets: ["PhoneSync"]),
         .library(name: "PhoneContext", targets: ["PhoneContext"]),
         .library(name: "ContactsAdapter", targets: ["ContactsAdapter"]),
         .library(name: "EventKitAdapter", targets: ["EventKitAdapter"]),
@@ -24,11 +25,13 @@ let package = Package(
         .target(name: "ProcessSupport"),
         .target(name: "MacModelBridge", dependencies: ["LocalInference", "ProcessSupport"]),
         .target(name: "AppleModelAdapter", dependencies: ["LocalInference"]),
-        .target(name: "PhoneContext", dependencies: ["AssistantCore", "LocalInference", "ContactsAdapter", "EventKitAdapter"]),
+        .target(name: "PhoneSync"),
+        .target(name: "MacPhoneSync", dependencies: ["PhoneSync", "AssistantStore", "ProcessSupport"]),
+        .target(name: "PhoneContext", dependencies: ["AssistantCore", "LocalInference", "ContactsAdapter", "EventKitAdapter", "PhoneSync"]),
         .executableTarget(name: "assistant-model-worker", dependencies: ["AppleModelAdapter", "LocalInference"]),
         .target(
             name: "AssistantStore",
-            dependencies: ["AssistantCore", "CSQLite", "LocalInference"]
+            dependencies: ["AssistantCore", "CSQLite", "LocalInference", "PhoneSync"]
         ),
         .target(
             name: "IMsgTransport",
@@ -52,6 +55,8 @@ let package = Package(
                 "IMsgTransport",
                 "LocalInference",
                 "MacModelBridge",
+                "MacPhoneSync",
+                "PhoneSync",
             ],
             exclude: ["Info.plist"],
             linkerSettings: [
@@ -81,7 +86,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AssistantStoreTests",
-            dependencies: ["AssistantCore", "AssistantStore", "LocalInference"]
+            dependencies: ["AssistantCore", "AssistantStore", "LocalInference", "PhoneSync"]
         ),
         .testTarget(
             name: "IMsgTransportTests",
