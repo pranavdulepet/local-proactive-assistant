@@ -54,10 +54,11 @@ struct ModelConversationServiceTests {
         }
         #expect(try await service.begin(question: "Tell me what I just said") == nil)
         let second = await transport.waitForSend(count: 2)
-        #expect(second.0.text == "You said: “Hello!”")
+        #expect(second.0.text == "Hello from the local model.")
         let requests = await provider.captured()
-        #expect(requests.count == 1)
+        #expect(requests.count == 2)
         #expect(requests.allSatisfy { $0.records.isEmpty && $0.coverage.isEmpty })
+        #expect(requests[1].history.contains { $0.text == "Hello!" })
     }
 
     @Test func ambiguousDeliveryKeepsContextForTheNextQuestion() async throws {
@@ -109,21 +110,26 @@ private actor WaitingModel: LocalModelProvider {
     private var startedWaiter: CheckedContinuation<Void, Never>?
     private var gate: CheckedContinuation<Void, Never>?
     func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "test") }
-    func answer(_ request: EvidenceRequest) async throws -> GroundedAnswer {
-        await withCheckedContinuation { continuation in
-            gate = continuation
-            started = true
-            startedWaiter?.resume()
-            startedWaiter = nil
-        }
-        return GroundedAnswer(insufficientEvidence: false, claims: [GroundedClaim(evidenceIDs: [request.records[0].id], text: "The project deadline is Friday.")])
+    func answer(_ request: EvidenceRequest) throws -> GroundedAnswer {
+        throw LocalModelFailure("Unexpected structured answer request")
     }
     func waitUntilStarted() async {
         if started { return }
         await withCheckedContinuation { startedWaiter = $0 }
     }
     func release() { gate?.resume(); gate = nil }
-    func chat(_ request: ChatRequest) -> ChatReply { ChatReply(text: "Second answer") }
+    func chat(_ request: ChatRequest) async -> ChatReply {
+        if !request.records.isEmpty {
+            await withCheckedContinuation { continuation in
+                gate = continuation
+                started = true
+                startedWaiter?.resume()
+                startedWaiter = nil
+            }
+            return ChatReply(text: "The project deadline is Friday. [e1]")
+        }
+        return ChatReply(text: "Second answer")
+    }
 }
 
 private actor AnswerTransport: MessageTransport {
