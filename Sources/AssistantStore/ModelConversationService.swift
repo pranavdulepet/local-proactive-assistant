@@ -79,35 +79,28 @@ public actor ModelConversationService {
         let started = Date()
         var reply: String
         do {
-            if let transcriptReply = Self.transcriptReply(to: message, history: await history.recent()) {
-                reply = transcriptReply
+            let previous = await history.lastUserMessage()
+            let request: EvidenceRequest
+            if let query = ConversationContextRouter.retrievalQuery(for: message, previous: previous) {
+                request = try await EvidenceRetriever(store: store).request(question: query)
             } else {
-                let previous = await history.lastUserMessage()
-                let request: EvidenceRequest
-                if Self.needsPersonalEvidence(message) {
-                    let query = Self.retrievalQuery(message, previous: previous)
-                    request = try await EvidenceRetriever(store: store).request(question: query)
-                } else {
-                    // Conversational turns use the recent transcript, not unrelated indexed messages.
-                    request = EvidenceRequest(question: message, records: [], coverage: [])
-                }
-                let retrievedAt = Date()
-                print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
-                if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
-                   !request.records.isEmpty {
-                    reply = try await AnswerService(provider: provider).answer(request).text
-                } else {
-                    let chat = ChatRequest(
-                        message: message, history: await history.recent(),
-                        records: request.records, coverage: request.coverage
-                    )
-                    try chat.validate()
-                    reply = try await provider.chat(chat).text
-                }
-                try Task.checkCancellation()
-                print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
-                }
+                request = EvidenceRequest(question: message, records: [], coverage: [])
+            }
+            let retrievedAt = Date()
+            print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
+            if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
+               !request.records.isEmpty {
+                reply = try await AnswerService(provider: provider).answer(request).text
+            } else {
+                let chat = ChatRequest(
+                    message: message, history: await history.recent(),
+                    records: request.records, coverage: request.coverage
+                )
+                try chat.validate()
+                reply = try await provider.chat(chat).text
+            }
             try Task.checkCancellation()
+            print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
         } catch is CancellationError {
             return
         } catch {
@@ -144,47 +137,4 @@ public actor ModelConversationService {
         }
     }
 
-    private static func transcriptReply(to message: String, history: [ChatTurn]) -> String? {
-        let words = message.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
-        let plain = words.joined(separator: " ")
-        if ["what did i just say", "tell me what i just said", "repeat my last message"].contains(plain) {
-            guard let previous = history.last(where: { $0.role == .user })?.text else {
-                return "I don't have an earlier message in this conversation."
-            }
-            return "You said: “\(previous)”"
-        }
-        if ["what did you just say", "repeat your last answer"].contains(plain) {
-            guard let previous = history.last(where: { $0.role == .assistant })?.text else {
-                return "I don't have an earlier answer in this conversation."
-            }
-            return "I said: “\(previous)”"
-        }
-        return nil
-    }
-
-    private static func needsPersonalEvidence(_ message: String) -> Bool {
-        let lower = message.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let words = lower.split { !$0.isLetter && !$0.isNumber }.map(String.init)
-        let plain = words.joined(separator: " ")
-        let greetings: Set<String> = [
-            "hi", "hello", "hey", "hey there", "good morning", "good afternoon",
-            "good evening", "how are you", "how is it going", "thanks", "thank you"
-        ]
-        if greetings.contains(plain) { return false }
-        // These refer to the assistant's small transcript, never the Messages index.
-        let transcriptQuestions = [
-            "what did i just say", "what i just said", "what did you just say",
-            "what you just said", "repeat my last message", "repeat your last answer"
-        ]
-        return !transcriptQuestions.contains(where: { plain.contains($0) })
-    }
-
-    private static func retrievalQuery(_ message: String, previous: String?) -> String {
-        let lower = message.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let follows = lower.hasPrefix("and ") || lower.hasPrefix("what about")
-            || lower.hasPrefix("tell me more") || lower.hasPrefix("when is it")
-            || lower.hasPrefix("who is that")
-        guard follows, let previous else { return message }
-        return EvidenceText.bounded(previous + " " + message, bytes: 512)
-    }
 }
