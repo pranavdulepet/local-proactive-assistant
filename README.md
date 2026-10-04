@@ -28,7 +28,7 @@ the host running. See [the guided setup](docs/local-models.md).
 ## Current stage: Messages assistant with paired phone context
 
 See [docs/local-models.md](docs/local-models.md) for setup. Install the Mac worker, start the host,
-and text your private Messages self-chat. Pair the optional phone companion once to include
+and text your private Messages self-chat from anywhere the phone and Mac have connectivity. The Mac must remain online and running the host. Pair the optional phone companion once to include
 derived sleep summaries. Mac generation needs Apple Intelligence support and macOS 26+; the
 source companion supports iOS 17+. Build with Xcode 26+.
 
@@ -114,8 +114,7 @@ swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo and control services never
-choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat
-notes are checkpointed without a reply. Send `/help` in the control chat to list commands.
+choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Send `/help` in the control chat to list commands.
 
 `serve` refreshes Messages and commitments every 60 seconds after each completed scan, and
 Calendar/Contacts every 15 minutes. Reminders start paused. `/resume` enables the one M1 rule;
@@ -145,7 +144,7 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 2. Ship signed native host/login-item support so the Mac host does not need a foreground terminal.
 3. Add optional location, Mail or another model only when a concrete use case requires it.
 
-The phone queues updates when the Mac is unreachable and uses no cloud relay. Model inference,
+The phone context companion queues updates when the Mac is unreachable and uses no cloud relay. The iMessage conversation relies on Apple's Messages delivery between your phone and Mac; that transport is not an on-prem network path. The phone currently has no local model or offline assistant chat. Model inference,
 source storage, and reduction stay on user-controlled devices. This does not claim unattended
 Mac lifecycle or immediate phone refresh while offline.
 
