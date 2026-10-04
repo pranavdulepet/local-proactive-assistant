@@ -29,4 +29,4 @@ mv "$bundle" "$install_root/LocalAssistantModel.app"
 
 echo "Installed the signed, sandboxed local model worker. No extra model weights downloaded."
 echo "Next: .build/release/assistantctl model-status"
-echo "Then: .build/release/assistantctl serve --control-chat-id 955 --model apple"
+echo "Then: bash scripts/start.sh (pairs your self-chat on first run)"

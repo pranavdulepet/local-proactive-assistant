@@ -140,4 +140,46 @@ struct IMsgTransportTests {
 
         Issue.record("RPC watch ended without emitting a message")
     }
+    @Test
+    func pollingCatchesNewCommandWithoutWatchNotification() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let executable = directory.appendingPathComponent("fake-imsg")
+        let script = #"""
+        #!/bin/sh
+        IFS= read -r request
+        request_id=$(printf '%s\n' "$request" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+        case "$request" in
+          *'"method":"messages.history"'*)
+            printf '{"jsonrpc":"2.0","id":"%s","result":{"messages":[{"id":100}]}}\n' "$request_id"
+            ;;
+          *'"method":"messages.after"'*)
+            printf '%s\\n' "$request" | grep -q '"chat_id":42' || exit 2
+            printf '%s\\n' "$request" | grep -q '"since_rowid":100' || exit 2
+            printf '{"jsonrpc":"2.0","id":"%s","result":{"messages":[{"id":101,"guid":"new-command","chat_id":42,"text":"/status","is_from_me":true,"created_at":"2026-09-27T00:57:57.794Z"}],"next_rowid":101,"has_more":false}}\n' "$request_id"
+            ;;
+          *)
+            printf '{"jsonrpc":"2.0","id":"%s","error":{"message":"unexpected request"}}\n' "$request_id"
+            ;;
+        esac
+        """#
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700], ofItemAtPath: executable.path
+        )
+
+        let stream = PollingIMsgTransport(base: IMsgTransport(executable: executable.path))
+            .subscribe(chatID: TransportChatID(rawValue: 42), after: nil)
+        for try await message in stream {
+            #expect(message.cursor.rawValue == 101)
+            #expect(message.text == "/status")
+            #expect(message.chatID.rawValue == 42)
+            return
+        }
+        Issue.record("History polling ended without a new command")
+    }
+
 }

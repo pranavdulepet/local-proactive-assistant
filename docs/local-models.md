@@ -6,28 +6,35 @@ sources; it has no demo, context import, or separate chat screen.
 
 ## Start on your Mac
 
-The Mac needs Apple Intelligence support, macOS 26+, Apple Intelligence enabled, and Xcode 26+
-to build the model worker. Stop the previous foreground host before updating.
+Use a Mac signed into Messages. Apple model answers require Apple silicon with Apple Intelligence
+enabled, macOS 26+, and Xcode 26+ to build the local worker. The host runs in the foreground.
 
 ```bash
-git pull --ff-only origin main
-./scripts/setup-local-model.sh
-.build/release/assistantctl model-status
-.build/release/assistantctl serve --control-chat-id 955 --model apple
+git clone https://github.com/pranavdulepet/local-proactive-assistant.git
+cd local-proactive-assistant
+bash scripts/start.sh
 ```
 
-Use your validated private control chat ID if it differs from 955. From Messages on your phone,
-send `What is on my calendar tomorrow?`. Questions ending in `?` do not need `/ask`.
-For other phrasing, use `/ask <question>`. Ordinary notes remain ignored.
+The starter installs `imsg` with Homebrew if needed, builds the local worker, checks Messages
+access, and prompts you to send a one-time code to your private iMessage self-chat. Confirm the
+chat identity it displays. It remembers that chat on this Mac for later runs. No chat ID or model
+weights need to be entered. If Homebrew is absent, install it first. macOS requires you to grant
+Full Disk Access to your terminal and, on the first reply, Automation permission for Messages;
+the starter explains a missing grant. Quit and reopen the terminal after Full Disk Access changes.
+
+Text `/status` in the paired self-chat. A response should appear within a few seconds. Then ask
+`What is on my calendar tomorrow?` or send `/ask <question>`. A history poll catches new texts
+even when `imsg`'s watch notification is missed. Ordinary notes are ignored.
 
 Calendar, Contacts and Messages come from the Mac. `/forgetting`, `/why`, `/done`, `/meeting`,
 `/pause`, `/resume`, `/status` and `/help` remain deterministic. Questions do not enable proactive
-reminders; `/resume` enables the one-per-day rule. Keep the Mac awake and the foreground process
-running. You do not need the phone companion open to chat.
+reminders; `/resume` enables the one-per-day rule. Keep the Mac awake and the process running.
+Rerun `bash scripts/start.sh` after a restart or update. Do not run two hosts at once.
 
-The Mac model runs in the signed sandboxed worker installed by setup. If generation is unavailable
-or invalid, the assistant returns labeled evidence excerpts. No remote model service is configured.
-`model-eval` and `check-model-worker.sh` are developer checks, not everyday app steps.
+The Mac model runs in the signed sandboxed worker installed by setup. If generation is unavailable,
+owner commands continue, but model-backed questions need a compatible Apple Intelligence Mac.
+No remote model service is configured. `model-eval` and `check-model-worker.sh` are developer
+checks, not everyday app steps.
 
 ## Pair the phone companion
 
@@ -46,7 +53,7 @@ Check that the eight-character verification code shown on the phone matches the 
 then tap **Pair**. Restart `serve` once after initial pairing so it starts the phone receiver:
 
 ```bash
-.build/release/assistantctl serve --control-chat-id 955 --model apple
+bash scripts/start.sh
 ```
 
 If your Mac's default hostname is not reachable on your network, recreate the pairing code with
