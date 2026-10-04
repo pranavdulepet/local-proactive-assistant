@@ -77,9 +77,11 @@ public actor ModelConversationService {
         }
         print("local answer prepared in \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)")
         let outbound = OutboundTransportMessage(text: reply)
+        var sendStarted = false
         do {
             try await ledger.begin(requestID: outbound.requestID, chatID: chatID, text: outbound.text)
             // Recipient is fixed by verified host configuration, never model output.
+            sendStarted = true
             let receipt = try await transport.send(outbound, to: chatID)
             try await ledger.confirm(requestID: outbound.requestID, messageGUID: receipt.messageGUID)
             try await history.append(user: message, assistant: reply)
@@ -91,7 +93,7 @@ public actor ModelConversationService {
             try? await ledger.markRecovered(requestID: outbound.requestID)
             // The transport may have delivered the reply before its confirmation timed out.
             // Keep the turn so the next queued question can refer to it.
-            try? await history.append(user: message, assistant: reply)
+            if sendStarted { try? await history.append(user: message, assistant: reply) }
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
     }
