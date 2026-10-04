@@ -305,7 +305,7 @@ struct AssistantCLI {
                                 try await conversation.begin(question: question, to: route.id, sourceID: key)
                             }
                         } else { answerQuestion = nil }
-                        let handler = ControlCommandHandler(store: commandStore, answerQuestion: answerQuestion)
+                        let handler = ControlCommandHandler(store: commandStore, inbox: inbox, answerQuestion: answerQuestion)
                         return try await handler.response(to: message.text)
                     },
                     checkpointAfterReply: true,
