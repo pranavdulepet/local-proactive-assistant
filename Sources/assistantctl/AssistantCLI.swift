@@ -272,6 +272,7 @@ struct AssistantCLI {
             // delay /status or /pause.
             let commandStore = try ObservationStore(fileURL: databaseURL)
             let answerStore = try ObservationStore(fileURL: databaseURL)
+            let chatHistory = try ConversationHistory(fileURL: try stateURL("conversation-history.json"))
             let phoneSync: PhoneSyncServer?
             if let identity = try MacPhoneIdentity.load() {
                 phoneSync = try PhoneSyncServer(identity: identity, store: store)
@@ -284,7 +285,7 @@ struct AssistantCLI {
             let sessions: [ControlSession] = selfChats.map { route in
                 let conversation = model == "apple" ? ModelConversationService(
                     store: answerStore, provider: MacModelProvider(), transport: controlTransport,
-                    ledger: ledger, chatID: route.id
+                    ledger: ledger, chatID: route.id, history: chatHistory
                 ) : nil
                 let answerQuestion: (@Sendable (String) async -> String)?
                 if let conversation {
@@ -310,7 +311,7 @@ struct AssistantCLI {
             }
             print("Serving owner commands. Press Control-C to stop.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
-            if model != nil { print("Ready: text a question ending in ? in your Messages self-chat.") }
+            if model != nil { print("Ready: text the assistant naturally in your verified Messages self-chat.") }
             if selfChats.count == 1 {
                 print("Only one route found. If your self-chat also uses another phone or email, "
                     + "add it with assistantctl add-self-handle --address <your address>.")
