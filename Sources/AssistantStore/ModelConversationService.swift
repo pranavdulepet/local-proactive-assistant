@@ -24,7 +24,7 @@ public actor ModelConversationService {
               question.utf8.count <= 512 else { return "Ask a question of at most 512 bytes." }
         guard active == nil else { return "A local answer is already in progress. Owner commands still work." }
         active = Task { await self.run(question: question) }
-        return "Checking indexed evidence locally. Owner commands still work."
+        return "Let me check."
     }
 
     public func cancel() {

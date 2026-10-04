@@ -195,7 +195,7 @@ struct AssistantCLI {
             let resumeCursor = await cursorStore.cursor(for: chat)
             print("Serving owner commands in chat \(chatID). Press Control-C to stop.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
-            if model != nil { print("Local evidence answers enabled: send /ask <question>. Model output cannot change proactive policy.") }
+            if model != nil { print("Ready: text a question ending in ? in your Messages self-chat.") }
             if let resumeCursor {
                 print("Resuming after row \(resumeCursor.rawValue).")
             }
