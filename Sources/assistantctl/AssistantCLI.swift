@@ -198,10 +198,24 @@ struct AssistantCLI {
             let hostLock = try HostLock(fileURL: try stateURL("host.lock"))
             defer { withExtendedLifetime(hostLock) {} }
             let chat = TransportChatID(rawValue: chatID)
-            guard let selectedChat = try await transport.chats().first(where: { $0.id == chat }),
+            let availableChats = try await transport.chats()
+            guard let selectedChat = availableChats.first(where: { $0.id == chat }),
                   !selectedChat.isGroup, selectedChat.service == "iMessage" else {
                 throw CLIError("Control chat must appear in the recent chats and be a direct iMessage conversation. Send it a message, then retry.")
             }
+            let savedHandles = (try? JSONDecoder().decode(
+                [String].self, from: Data(contentsOf: stateURL("self-handles.json"))
+            )) ?? []
+            var ownerHandles = Set(savedHandles)
+            do {
+                ownerHandles.formUnion(try await ContactsStoreSource().selfHandles())
+            } catch {
+                print("Contacts Me card unavailable; using paired and manually verified self routes.")
+            }
+            let selfChats = SelfChatRoutes.resolve(
+                primary: selectedChat, available: availableChats, ownerHandles: ownerHandles
+            )
+            print("Owner routes: " + selfChats.map { String($0.id.rawValue) }.joined(separator: ", "))
             let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
@@ -213,82 +227,95 @@ struct AssistantCLI {
                 print("Paired phone sync listening on local HTTPS port \(identity.pairing.server.port ?? 8765).")
             } else { phoneSync = nil }
             defer { phoneSync?.stop() }
-            let conversation = model == "apple" ? ModelConversationService(
-                store: store, provider: MacModelProvider(), transport: transport, ledger: ledger, chatID: chat
-            ) : nil
-            let answerQuestion: (@Sendable (String) async -> String)?
-            if let conversation {
-                answerQuestion = { question in await conversation.begin(question: question) }
-            } else { answerQuestion = nil }
-            let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
-            let service = EchoService(
-                transport: PollingIMsgTransport(base: transport),
-                ledger: ledger,
-                cursorStore: cursorStore,
-                reply: { text in try await handler.response(to: text) },
-                onReconnect: { attempt, delay, detail in
-                    print(
-                        "message catchup interrupted: \(detail) "
-                            + "retrying in \(Int(delay))s (attempt \(attempt))"
-                    )
-                }
-            )
-
-            let resumeCursor = await cursorStore.cursor(for: chat)
-            print("Serving owner commands in chat \(chatID). Press Control-C to stop.")
+            let sessions: [ControlSession] = selfChats.map { route in
+                let conversation = model == "apple" ? ModelConversationService(
+                    store: store, provider: MacModelProvider(), transport: transport,
+                    ledger: ledger, chatID: route.id
+                ) : nil
+                let answerQuestion: (@Sendable (String) async -> String)?
+                if let conversation {
+                    answerQuestion = { question in await conversation.begin(question: question) }
+                } else { answerQuestion = nil }
+                let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
+                let service = EchoService(
+                    transport: PollingIMsgTransport(base: transport),
+                    ledger: ledger,
+                    cursorStore: cursorStore,
+                    reply: { text in try await handler.response(to: text) },
+                    onReconnect: { attempt, delay, detail in
+                        print("chat \(route.id.rawValue) catchup interrupted: \(detail); "
+                            + "retrying in \(Int(delay))s (attempt \(attempt))")
+                    }
+                )
+                return ControlSession(chatID: route.id, service: service, conversation: conversation)
+            }
+            print("Serving owner commands. Press Control-C to stop.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
             if model != nil { print("Ready: text a question ending in ? in your Messages self-chat.") }
-            if let resumeCursor {
-                print("Resuming after row \(resumeCursor.rawValue).")
+            if selfChats.count == 1 {
+                print("Only one route found. If your self-chat also uses another phone or email, "
+                    + "add it with assistantctl add-self-handle --address <your address>.")
             }
             let refresh = HostRefreshService(
                 messages: transport, calendar: EventKitCalendarSource(),
-                contacts: ContactsStoreSource(), store: store, controlChatID: chat
+                contacts: ContactsStoreSource(), store: store,
+                controlChatIDs: Set(selfChats.map(\.id))
             )
             let reminders = ProactiveReminderService(store: store, transport: transport, ledger: ledger)
             do {
-              try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    for try await event in service.events(chatID: chat, after: resumeCursor) {
-                        switch event.decision {
-                        case .accept where event.receipt != nil:
-                            let guid = event.receipt?.messageGUID ?? "unverified"
-                            print("handled row \(event.inbound.cursor.rawValue); submitted \(guid)")
-                        case .accept:
-                            print("ignored row \(event.inbound.cursor.rawValue): not a command")
-                        case .reject(let reason):
-                            print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    for session in sessions {
+                        let resumeCursor = await cursorStore.cursor(for: session.chatID)
+                        if let resumeCursor {
+                            print("Chat \(session.chatID.rawValue) resumes after row \(resumeCursor.rawValue).")
                         }
-                    }
-                }
-                group.addTask {
-                    while !Task.isCancelled {
-                        let report = try await refresh.refresh()
-                        for source in report.failures {
-                            print("\(source.rawValue) refresh unavailable; check permission/access. Commands remain available.")
-                        }
-                        if report.messagesReady {
-                            do {
-                                if try await reminders.tick(chatID: chat) {
-                                    print("proactive reminder submitted (not a delivery confirmation)")
+                        group.addTask {
+                            for try await event in session.service.events(
+                                chatID: session.chatID, after: resumeCursor
+                            ) {
+                                switch event.decision {
+                                case .accept where event.receipt != nil:
+                                    let guid = event.receipt?.messageGUID ?? "unverified"
+                                    print("chat \(session.chatID.rawValue) handled row "
+                                        + "\(event.inbound.cursor.rawValue); submitted \(guid)")
+                                case .accept:
+                                    print("chat \(session.chatID.rawValue) ignored row "
+                                        + "\(event.inbound.cursor.rawValue): not a command")
+                                case .reject(let reason):
+                                    print("chat \(session.chatID.rawValue) ignored row "
+                                        + "\(event.inbound.cursor.rawValue): \(reason.rawValue)")
                                 }
-                            } catch {
-                                try Task.checkCancellation()
-                                try await store.setProactivityPaused(true)
-                                print("proactive submission uncertain; reminders paused. Check /status before /resume.")
                             }
                         }
-                        try await Task.sleep(for: .seconds(60))
                     }
+                    group.addTask {
+                        while !Task.isCancelled {
+                            let report = try await refresh.refresh()
+                            for source in report.failures {
+                                print("\(source.rawValue) refresh unavailable; check permission/access. Commands remain available.")
+                            }
+                            if report.messagesReady {
+                                do {
+                                    if try await reminders.tick(chatID: chat) {
+                                        print("proactive reminder submitted (not a delivery confirmation)")
+                                    }
+                                } catch {
+                                    try Task.checkCancellation()
+                                    try await store.setProactivityPaused(true)
+                                    print("proactive submission uncertain; reminders paused. Check /status before /resume.")
+                                }
+                            }
+                            try await Task.sleep(for: .seconds(60))
+                        }
+                    }
+                    defer { group.cancelAll() }
+                    try await group.next()
                 }
-                defer { group.cancelAll() }
-                try await group.next()
-              }
             } catch {
-                await conversation?.cancel()
+                for session in sessions { await session.conversation?.cancel() }
                 throw error
             }
-            await conversation?.cancel()
+            for session in sessions { await session.conversation?.cancel() }
 
         case "proactive-status", "pause", "resume":
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
@@ -537,6 +564,12 @@ struct AssistantCLI {
           assistantctl complete-commitment --commitment <id>
         """)
     }
+}
+
+private struct ControlSession: Sendable {
+    let chatID: TransportChatID
+    let service: EchoService
+    let conversation: ModelConversationService?
 }
 
 private struct CLIError: Error, CustomStringConvertible {
