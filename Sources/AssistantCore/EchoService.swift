@@ -34,6 +34,7 @@ public struct EchoService: Sendable {
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
     private let onReconnect: @Sendable (Int, TimeInterval, String) -> Void
     private let onProgress: @Sendable (TransportCursor, String) -> Void
+    private let echoChatIDs: Set<TransportChatID>
 
     public init(
         transport: any MessageTransport,
@@ -44,7 +45,8 @@ public struct EchoService: Sendable {
             min(pow(2, Double(attempt - 1)), 30)
         },
         onReconnect: @escaping @Sendable (Int, TimeInterval, String) -> Void = { _, _, _ in },
-        onProgress: @escaping @Sendable (TransportCursor, String) -> Void = { _, _ in }
+        onProgress: @escaping @Sendable (TransportCursor, String) -> Void = { _, _ in },
+        echoChatIDs: Set<TransportChatID> = []
     ) {
         self.transport = transport
         self.ledger = ledger
@@ -53,6 +55,7 @@ public struct EchoService: Sendable {
         self.reconnectDelay = reconnectDelay
         self.onReconnect = onReconnect
         self.onProgress = onProgress
+        self.echoChatIDs = echoChatIDs
     }
 
     public func events(
@@ -64,7 +67,8 @@ public struct EchoService: Sendable {
                 do {
                     let filter = ControlMessageFilter(
                         controlChatID: chatID,
-                        ledger: ledger
+                        ledger: ledger,
+                        echoChatIDs: echoChatIDs
                     )
                     let storedCursor = await cursorStore.cursor(for: chatID)
                     var lastCursor = [cursor, storedCursor].compactMap { $0 }.max()
