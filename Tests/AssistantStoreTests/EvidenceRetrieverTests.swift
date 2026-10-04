@@ -20,6 +20,54 @@ struct EvidenceRetrieverTests {
     }
 
     @Test
+    func naturalMeetingQuestionRetrievesCalendarEvents() async throws {
+        let store = try ObservationStore()
+        let now = Date()
+        let calendar = Calendar.autoupdatingCurrent
+        let tomorrow = calendar.date(byAdding: .hour, value: 10,
+            to: calendar.date(byAdding: .day, value: 1,
+                to: calendar.startOfDay(for: now))!)!
+        try await store.record(Observation(
+            source: .calendar, externalID: "tomorrow", versionHash: "v1",
+            sourceRevision: 1, sourceTimestamp: tomorrow, trust: .structuredSource,
+            text: "Team planning at 10 AM", locator: "calendar:tomorrow"
+        ))
+        let request = try await EvidenceRetriever(store: store).request(
+            question: "Do I have any meetings tomorrow?", now: now
+        )
+        #expect(request.records.map(\.source) == ["calendar"])
+        #expect(request.records[0].text.contains("Team planning"))
+    }
+
+    @Test
+    func personMessageQuestionFollowsContactHandle() async throws {
+        let store = try ObservationStore()
+        try await store.record(Observation(
+            source: .contacts, externalID: "maya", versionHash: "v1",
+            sourceRevision: 1, trust: .structuredSource,
+            handles: ["maya@example.com"], text: "Maya River\\nEmails: maya@example.com",
+            locator: "contacts:maya"
+        ))
+        try await store.record(Observation(
+            source: .messages, externalID: "maya-message", versionHash: "v1",
+            sourceRevision: 1, sourceTimestamp: Date(), trust: .knownExternal,
+            handles: ["maya@example.com"], text: "Please bring the notes.",
+            locator: "imsg:maya-message"
+        ))
+        try await store.record(Observation(
+            source: .messages, externalID: "unrelated", versionHash: "v1",
+            sourceRevision: 1, sourceTimestamp: Date(), trust: .knownExternal,
+            handles: ["other@example.com"], text: "Unrelated private message.",
+            locator: "imsg:unrelated"
+        ))
+        let request = try await EvidenceRetriever(store: store).request(
+            question: "What did Maya text me?"
+        )
+        #expect(request.records.count == 1)
+        #expect(request.records[0].locator == "imsg:maya-message")
+    }
+
+    @Test
     func retractedCommitmentEvidenceCannotEnterTheModelContext() async throws {
         let store = try ObservationStore()
         let now = Date()
