@@ -17,7 +17,21 @@ if ! command -v imsg >/dev/null 2>&1; then
     brew install steipete/tap/imsg
 fi
 
-./scripts/setup-local-model.sh
+model_choice="${ASSISTANT_MODEL:-apple}"
+if [[ "$model_choice" == "local" ]]; then
+    if [[ -z "${ASSISTANT_MODEL_NAME:-}" ]]; then
+        echo "Set ASSISTANT_MODEL_NAME to a model loaded by your local server." >&2
+        exit 1
+    fi
+    swift build -c release --product assistantctl
+    model_args=(--model local --model-url "${ASSISTANT_MODEL_URL:-http://127.0.0.1:11434/v1}" --model-name "$ASSISTANT_MODEL_NAME")
+elif [[ "$model_choice" == "apple" ]]; then
+    ./scripts/setup-local-model.sh
+    model_args=(--model apple)
+else
+    echo "ASSISTANT_MODEL must be apple or local." >&2
+    exit 1
+fi
 
 if ! .build/release/assistantctl doctor; then
     echo "Grant Full Disk Access to this terminal in System Settings > Privacy & Security," >&2
@@ -30,10 +44,15 @@ if [[ ! -s "$config" ]]; then
     .build/release/assistantctl pair-chat
 fi
 
-if .build/release/assistantctl model-status; then
-    echo "Apple's local model is ready. On the first reply, allow Automation > Messages."
-    exec .build/release/assistantctl serve --model apple
+if .build/release/assistantctl model-status "${model_args[@]}"; then
+    echo "Local model is ready. On the first reply, allow Automation > Messages."
+    exec .build/release/assistantctl serve "${model_args[@]}"
 fi
 
-echo "Apple's local model is unavailable. Owner commands still work; questions need an Apple Intelligence Mac."
+if [[ "$model_choice" == "local" ]]; then
+    echo "Your local model server is unavailable. Start it and rerun this script." >&2
+    exit 1
+fi
+
+echo "Apple's local model is unavailable. Owner commands still work; questions need a ready local model."
 exec .build/release/assistantctl serve
