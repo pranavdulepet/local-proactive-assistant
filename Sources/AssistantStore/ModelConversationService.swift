@@ -80,8 +80,14 @@ public actor ModelConversationService {
         var reply: String
         do {
             let previous = await history.lastUserMessage()
-            let query = Self.retrievalQuery(message, previous: previous)
-            let request = try await EvidenceRetriever(store: store).request(question: query)
+            let request: EvidenceRequest
+            if Self.needsPersonalEvidence(message) {
+                let query = Self.retrievalQuery(message, previous: previous)
+                request = try await EvidenceRetriever(store: store).request(question: query)
+            } else {
+                // Conversational turns use the recent transcript, not unrelated indexed messages.
+                request = EvidenceRequest(question: message, records: [], coverage: [])
+            }
             let retrievedAt = Date()
             print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
             if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
@@ -131,6 +137,23 @@ public actor ModelConversationService {
             try? await history.append(user: message, assistant: reply)
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
+    }
+
+    private static func needsPersonalEvidence(_ message: String) -> Bool {
+        let lower = message.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = lower.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        let plain = words.joined(separator: " ")
+        let greetings: Set<String> = [
+            "hi", "hello", "hey", "hey there", "good morning", "good afternoon",
+            "good evening", "how are you", "how is it going", "thanks", "thank you"
+        ]
+        if greetings.contains(plain) { return false }
+        // These refer to the assistant's small transcript, never the Messages index.
+        let transcriptQuestions = [
+            "what did i just say", "what i just said", "what did you just say",
+            "what you just said", "repeat my last message", "repeat your last answer"
+        ]
+        return !transcriptQuestions.contains(where: { plain.contains($0) })
     }
 
     private static func retrievalQuery(_ message: String, previous: String?) -> String {
