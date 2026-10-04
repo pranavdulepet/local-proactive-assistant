@@ -21,6 +21,18 @@ struct ControlCommandHandlerTests {
     }
 
     @Test
+    func statusShowsDurableReplyBacklog() async throws {
+        let inbox = ConversationInbox()
+        _ = try await inbox.enqueue(
+            id: "954:one", question: "hello", chatID: .init(rawValue: 954)
+        )
+        let handler = ControlCommandHandler(store: try ObservationStore(), inbox: inbox)
+        #expect(try await handler.response(to: "/status")?.contains(
+            "Assistant replies: 1 pending, 0 uncertain, 0 failed."
+        ) == true)
+    }
+
+    @Test
     func queuedConversationSendsNoImmediateAcknowledgment() async throws {
         let handler = ControlCommandHandler(store: try ObservationStore(), answerQuestion: { _ in nil })
         #expect(try await handler.response(to: "Hello") == nil)
