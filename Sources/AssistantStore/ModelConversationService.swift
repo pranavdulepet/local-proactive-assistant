@@ -88,17 +88,12 @@ public actor ModelConversationService {
             }
             let retrievedAt = Date()
             print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
-            if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
-               !request.records.isEmpty {
-                reply = try await AnswerService(provider: provider).answer(request).text
-            } else {
-                let chat = ChatRequest(
-                    message: message, history: await history.recent(),
-                    records: request.records, coverage: request.coverage
-                )
-                try chat.validate()
-                reply = try await provider.chat(chat).text
-            }
+            let chat = ChatRequest(
+                message: message, history: await history.recent(),
+                records: request.records, coverage: request.coverage
+            )
+            try chat.validate()
+            reply = try await provider.chat(chat).text
             try Task.checkCancellation()
             print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
         } catch is CancellationError {
