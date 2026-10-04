@@ -298,7 +298,7 @@ struct AssistantCLI {
                     ledger: ledger,
                     cursorStore: cursorStore,
                     replyMessage: { message in
-                        let answerQuestion: (@Sendable (String) async -> String?)?
+                        let answerQuestion: (@Sendable (String) async throws -> String?)?
                         if let conversation {
                             let key = "\(route.id.rawValue):"
                                 + (message.guid.isEmpty ? "row:\(message.cursor.rawValue)" : message.guid)
