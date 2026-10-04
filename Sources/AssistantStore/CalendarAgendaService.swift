@@ -46,24 +46,25 @@ public struct CalendarAgendaService: Sendable {
         formatter.timeZone = calendar.timeZone
         formatter.timeStyle = .short
         var lines = [events.isEmpty
-            ? "No indexed Calendar events start \(dayName)."
-            : "Indexed Calendar events starting \(dayName):"]
-        for (index, event) in events.prefix(12).enumerated() {
+            ? "I don't see any events starting \(dayName)."
+            : "Here's what's on your calendar \(dayName):"]
+        for event in events.prefix(12) {
             let title = event.text.split(separator: "\n").first.map(String.init) ?? "Untitled event"
             let time = event.text.contains("All day: yes")
                 ? "All day"
                 : event.sourceTimestamp.map(formatter.string(from:)) ?? "Time unavailable"
-            lines.append("\(index + 1). \(time) — \(title) [\(index + 1)]")
+            lines.append("• \(time) — \(title)")
         }
         if events.count > 12 {
-            lines.append("Showing 12 of \(events.count) indexed events.")
+            lines.append("Showing 12 of \(events.count) events.")
         }
-        for (index, event) in events.prefix(12).enumerated() {
-            lines.append("[\(index + 1)] \(event.locator)")
+        if coverage.status != .ready || !coverage.limitations.isEmpty {
+            let syncFormatter = DateFormatter()
+            syncFormatter.timeZone = calendar.timeZone
+            syncFormatter.dateStyle = .medium
+            syncFormatter.timeStyle = .short
+            lines.append("Calendar data may be incomplete (last synced \(syncFormatter.string(from: coverage.lastSuccessfulSync))).")
         }
-        let syncTime = ISO8601DateFormatter().string(from: coverage.lastSuccessfulSync)
-        lines.append("Calendar \(coverage.status.rawValue), synced \(syncTime). Times in \(calendar.timeZone.identifier).")
-        lines.append(contentsOf: coverage.limitations.map { "Coverage: \($0)" })
         return lines.joined(separator: "\n")
     }
 }
