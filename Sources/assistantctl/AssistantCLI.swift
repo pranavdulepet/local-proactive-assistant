@@ -145,14 +145,14 @@ struct AssistantCLI {
 
         case "add-self-handle":
             guard let address = takeOption("--address", from: &arguments),
-                  let normalized = PersonHandle.normalize(address),
+                  let normalized = SelfChatRoutes.canonical(address),
                   normalized.contains("@") || normalized.first?.isNumber == true
                     || normalized.hasPrefix("+") else {
                 throw CLIError("Provide your own iMessage phone number or email with --address.")
             }
             let matches = try await transport.chats().filter {
                 !$0.isGroup && $0.service == "iMessage"
-                    && PersonHandle.normalize($0.identifier) == normalized
+                    && SelfChatRoutes.canonical($0.identifier) == normalized
             }
             guard !matches.isEmpty else {
                 throw CLIError("No recent direct iMessage chat uses this address. Text it first, then retry.")
