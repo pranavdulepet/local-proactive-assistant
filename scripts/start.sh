@@ -11,7 +11,7 @@ fi
 
 if ! command -v imsg >/dev/null 2>&1; then
     if ! command -v brew >/dev/null 2>&1; then
-        echo "Install Homebrew from https://brew.sh, then rerun ./scripts/start.sh." >&2
+        echo "Install Homebrew from https://brew.sh, then rerun bash scripts/start.sh." >&2
         exit 1
     fi
     brew install steipete/tap/imsg
@@ -21,7 +21,7 @@ fi
 
 if ! .build/release/assistantctl doctor; then
     echo "Grant Full Disk Access to this terminal in System Settings > Privacy & Security," >&2
-    echo "quit and reopen the terminal, then rerun ./scripts/start.sh." >&2
+    echo "quit and reopen the terminal, then rerun bash scripts/start.sh." >&2
     exit 1
 fi
 
