@@ -45,7 +45,7 @@ open-weight local model, stop the host with Control-C and run:
 bash scripts/start-open-model.sh
 ```
 
-This installs Ollama through Homebrew if needed, starts it on 127.0.0.1, downloads weights once,
+This installs Ollama through Homebrew if needed, starts its own server on 127.0.0.1:11435, downloads weights once,
 and uses Qwen3.8 27B Q4 (about 18 GB) on a 40 GB+ Mac, Qwen3.5 9B on a 16–39 GB Mac, or
 Qwen3.5 4B on a 12–15 GB Mac. On a 48 GB M4 Pro this is the 27B option. The starter disables
 optional thinking for ordinary quick chat; personal evidence remains on the Mac. Model downloads
@@ -53,6 +53,15 @@ need internet once, while inference does not. `ASSISTANT_OPEN_MODEL=<tag> bash s
 chooses another locally installed Ollama model. Use `bash scripts/start.sh` to return to Apple's
 model. These are starting points based on model size and memory, not measured performance on
 your Mac. Run one host at a time.
+
+The starter prints the runtime executable and running server version. It uses its own server
+so an older Ollama desktop app or Homebrew service on port 11434 cannot keep serving after a
+CLI update. If a model reports that it needs a newer Ollama (HTTP 412), a Homebrew installation
+is updated and the owned server restarted before one retry. For a desktop-app installation,
+use Ollama's menu **Restart to update**, or install the latest version from
+https://ollama.com/download and ensure the printed executable is updated. Downloaded weights
+are retained. The starter does not stop an unrelated Ollama app or service.
+
 
 For a different local server, set `ASSISTANT_MODEL=local`, `ASSISTANT_MODEL_NAME`, and optionally
 `ASSISTANT_MODEL_URL` when running `start.sh`. The URL must use literal loopback HTTP and a
