@@ -58,6 +58,8 @@ public actor ModelConversationService {
             let previous = await history.lastUserMessage()
             let query = Self.retrievalQuery(message, previous: previous)
             let request = try await EvidenceRetriever(store: store).request(question: query)
+            let retrievedAt = Date()
+            print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
             if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
                !request.records.isEmpty {
                 reply = try await AnswerService(provider: provider).answer(request).text
@@ -70,6 +72,7 @@ public actor ModelConversationService {
                 reply = try await provider.chat(chat).text
             }
             try Task.checkCancellation()
+            print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
         } catch is CancellationError {
             return
         } catch {
