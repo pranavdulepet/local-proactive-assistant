@@ -37,6 +37,7 @@ struct CalendarAgendaServiceTests {
         #expect(reply.contains("Calendar partial"))
         #expect(!reply.contains("model should not answer"))
         #expect(try await handler.response(to: "/ask what is on my calendar tomorrow") == reply)
+        #expect(try await handler.response(to: "What is on my calendar tmr") == reply)
     }
 
     @Test

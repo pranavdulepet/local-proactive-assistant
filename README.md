@@ -131,7 +131,7 @@ swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo and control services never
-choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Send `/help` in the control chat to list commands.
+choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The host sends one final answer per turn and queues follow-ups; commands and direct Calendar agendas can answer while generation is running. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Because the Mac sends from your own iMessage account, replies appear as outgoing blue bubbles. A [separate assistant identity](https://github.com/pranavdulepet/local-proactive-assistant/issues/28) is the intended long-term conversation UX. Send `/help` in the control chat to list commands.
 
 `serve` refreshes Messages and commitments every 60 seconds after each completed scan, and
 Calendar/Contacts every 15 minutes. Reminders start paused. `/resume` enables the one M1 rule;

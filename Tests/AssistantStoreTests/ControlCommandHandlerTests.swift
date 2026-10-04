@@ -21,6 +21,13 @@ struct ControlCommandHandlerTests {
     }
 
     @Test
+    func queuedConversationSendsNoImmediateAcknowledgment() async throws {
+        let handler = ControlCommandHandler(store: try ObservationStore(), answerQuestion: { _ in nil })
+        #expect(try await handler.response(to: "Hello") == nil)
+        #expect(try await handler.response(to: "/ask how are you") == nil)
+    }
+
+    @Test
     func ignoresOrdinarySelfChatMessages() async throws {
         let handler = ControlCommandHandler(store: try ObservationStore())
 

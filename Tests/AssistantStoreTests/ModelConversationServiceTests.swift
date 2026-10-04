@@ -18,7 +18,7 @@ struct ModelConversationServiceTests {
             transport: transport, ledger: try OutboundLedger(),
             chatID: chat, history: history
         )
-        #expect(await service.begin(question: "hello") == "Let me check.")
+        #expect(await service.begin(question: "hello") == nil)
         let sent = await transport.waitForSend()
         #expect(sent.1 == chat)
         #expect(sent.0.text == "Hello from the local model.")
@@ -39,9 +39,10 @@ struct ModelConversationServiceTests {
         let ledger = try OutboundLedger()
         let chat = TransportChatID(rawValue: 955)
         let service = ModelConversationService(store: store, provider: provider, transport: transport, ledger: ledger, chatID: chat)
-        #expect(!(await service.begin(question: "What is the project deadline?")).isEmpty)
+        #expect(await service.begin(question: "What is the project deadline?") == nil)
         await provider.waitUntilStarted()
-        #expect(await service.begin(question: "another question").contains("already in progress"))
+        let secondRoute = TransportChatID(rawValue: 954)
+        #expect(await service.begin(question: "another question", to: secondRoute) == nil)
         let handler = ControlCommandHandler(store: store)
         #expect(try await handler.response(to: "/pause")?.contains("paused") == true)
         #expect(try await store.proactivityStatus().paused)
@@ -50,6 +51,9 @@ struct ModelConversationServiceTests {
         #expect(sent.1 == chat)
         #expect(sent.0.text.contains("Friday"))
         #expect(try await ledger.contains(text: sent.0.text, chatID: chat, messageDate: Date()))
+        let second = await transport.waitForSend(count: 2)
+        #expect(second.1 == secondRoute)
+        #expect(second.0.text == "Second answer")
     }
 }
 
@@ -73,22 +77,26 @@ private actor WaitingModel: LocalModelProvider {
         await withCheckedContinuation { startedWaiter = $0 }
     }
     func release() { gate?.resume(); gate = nil }
+    func chat(_ request: ChatRequest) -> ChatReply { ChatReply(text: "Second answer") }
 }
 
 private actor AnswerTransport: MessageTransport {
-    private var sent: (OutboundTransportMessage, TransportChatID)?
-    private var waiter: CheckedContinuation<(OutboundTransportMessage, TransportChatID), Never>?
+    private var sent: [(OutboundTransportMessage, TransportChatID)] = []
+    private var waiters: [(Int, CheckedContinuation<(OutboundTransportMessage, TransportChatID), Never>)] = []
     func probe() -> TransportHealth { TransportHealth(ready: true, detail: "test") }
     func chats() -> [TransportChat] { [] }
     nonisolated func subscribe(chatID: TransportChatID, after cursor: TransportCursor?) -> AsyncThrowingStream<InboundTransportMessage, Error> { AsyncThrowingStream { $0.finish() } }
     func send(_ message: OutboundTransportMessage, to chatID: TransportChatID) -> SendReceipt {
-        sent = (message, chatID)
-        waiter?.resume(returning: (message, chatID)); waiter = nil
+        sent.append((message, chatID))
+        for (count, waiter) in waiters where sent.count >= count {
+            waiter.resume(returning: sent[count - 1])
+        }
+        waiters.removeAll { sent.count >= $0.0 }
         return SendReceipt(requestID: message.requestID, messageGUID: "test-guid", rowID: 1, transport: "test")
     }
-    func waitForSend() async -> (OutboundTransportMessage, TransportChatID) {
-        if let sent { return sent }
-        return await withCheckedContinuation { waiter = $0 }
+    func waitForSend(count: Int = 1) async -> (OutboundTransportMessage, TransportChatID) {
+        if sent.count >= count { return sent[count - 1] }
+        return await withCheckedContinuation { waiters.append((count, $0)) }
     }
 }
 
