@@ -165,7 +165,12 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var position = cursor ?? (try await latestCursor(in: chatID))
+                    var position: TransportCursor
+                    if let cursor {
+                        position = cursor
+                    } else {
+                        position = try await latestCursor(in: chatID)
+                    }
                     while !Task.isCancelled {
                         let page = try await chatPage(in: chatID, after: position)
                         guard page.nextCursor >= position else {
