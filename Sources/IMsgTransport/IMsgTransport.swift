@@ -155,6 +155,88 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         }
     }
 
+    /// Paged chat catchup is the control path. It does not depend on filesystem events.
+    /// A nil cursor starts at the newest message in this chat, so setup never replays history.
+    public func subscribeByPolling(
+        chatID: TransportChatID,
+        after cursor: TransportCursor?,
+        interval: Duration = .seconds(2)
+    ) -> AsyncThrowingStream<InboundTransportMessage, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var position = cursor ?? (try await latestCursor(in: chatID))
+                    while !Task.isCancelled {
+                        let page = try await chatPage(in: chatID, after: position)
+                        guard page.nextCursor >= position else {
+                            throw TransportFailure("imsg history cursor moved backwards.")
+                        }
+                        if page.hasMore && page.nextCursor == position {
+                            throw TransportFailure("imsg history page did not advance.")
+                        }
+                        for message in page.messages {
+                            try Task.checkCancellation()
+                            continuation.yield(message)
+                        }
+                        position = page.nextCursor
+                        if !page.hasMore {
+                            try await Task.sleep(for: interval)
+                        }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func latestCursor(in chatID: TransportChatID) async throws -> TransportCursor {
+        let result = try await rpc(
+            method: "messages.history",
+            params: ["chat_id": chatID.rawValue, "limit": 1, "attachments": false]
+        )
+        guard let rawMessages = result["messages"] as? [[String: Any]] else {
+            throw TransportFailure("imsg returned an invalid latest message response.")
+        }
+        guard let latest = rawMessages.first else { return TransportCursor(rawValue: 0) }
+        guard let row = (latest["id"] as? NSNumber)?.int64Value else {
+            throw TransportFailure("imsg returned a latest message without a row ID.")
+        }
+        return TransportCursor(rawValue: row)
+    }
+
+    private func chatPage(
+        in chatID: TransportChatID,
+        after cursor: TransportCursor
+    ) async throws -> (messages: [InboundTransportMessage], nextCursor: TransportCursor, hasMore: Bool) {
+        let result = try await rpc(
+            method: "messages.after",
+            params: [
+                "chat_id": chatID.rawValue,
+                "since_rowid": cursor.rawValue,
+                "limit": 100,
+                "attachments": false,
+                "include_reactions": false,
+            ]
+        )
+        guard let rawMessages = result["messages"] as? [[String: Any]],
+              let nextRowID = (result["next_rowid"] as? NSNumber)?.int64Value,
+              let hasMore = result["has_more"] as? Bool else {
+            throw TransportFailure("imsg returned an invalid chat history page.")
+        }
+        let data = try JSONSerialization.data(withJSONObject: rawMessages)
+        let messages = try JSONDecoder().decode([IMsgMessage].self, from: data)
+        let inbound = try messages.map { try $0.transportMessage }
+        guard inbound.allSatisfy({ $0.chatID == chatID }) else {
+            throw TransportFailure("imsg returned a message from another chat.")
+        }
+        return (inbound, TransportCursor(rawValue: nextRowID), hasMore)
+    }
+
     public func send(
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
@@ -341,5 +423,30 @@ private struct IMsgMessage: Decodable {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+}
+
+public struct PollingIMsgTransport: MessageTransport, Sendable {
+    private let base: IMsgTransport
+
+    public init(base: IMsgTransport) {
+        self.base = base
+    }
+
+    public func probe() async -> TransportHealth { await base.probe() }
+    public func chats() async throws -> [TransportChat] { try await base.chats() }
+
+    public func subscribe(
+        chatID: TransportChatID,
+        after cursor: TransportCursor?
+    ) -> AsyncThrowingStream<InboundTransportMessage, Error> {
+        base.subscribeByPolling(chatID: chatID, after: cursor)
+    }
+
+    public func send(
+        _ message: OutboundTransportMessage,
+        to chatID: TransportChatID
+    ) async throws -> SendReceipt {
+        try await base.send(message, to: chatID)
     }
 }
