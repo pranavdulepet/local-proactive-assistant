@@ -4,9 +4,9 @@ A local-first macOS assistant that tracks loose ends and eventually sends a smal
 
 This repository started with a reliable self-chat transport loop. It now has read-only
 Messages, Calendar and Contacts ingestion, bounded Mac-local answers, and a phone source
-companion. **Messages is the only conversation interface.** Apple's system model answers on the
-Mac. The phone pairs with the Mac and shares selected derived sleep context; it has no demo,
-context import, or separate chat UI.
+companion. **Messages is the main conversation interface.** The Mac answers through
+Messages. The optional phone app can answer locally while open on a supported iPhone and
+shares selected derived sleep context with its paired Mac.
 
 ## Quick start
 
