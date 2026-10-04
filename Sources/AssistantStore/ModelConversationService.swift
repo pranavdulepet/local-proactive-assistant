@@ -89,6 +89,9 @@ public actor ModelConversationService {
             print("chat \(chatID.rawValue): local answer send did not start")
         } catch {
             try? await ledger.markRecovered(requestID: outbound.requestID)
+            // The transport may have delivered the reply before its confirmation timed out.
+            // Keep the turn so the next queued question can refer to it.
+            try? await history.append(user: message, assistant: reply)
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
     }
