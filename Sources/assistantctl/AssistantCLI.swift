@@ -264,8 +264,12 @@ struct AssistantCLI {
                 print("Chat \(route.id.rawValue): recovered an earlier unconfirmed send; "
                     + "skipped through row \(latest.rawValue) without resending. Text again if needed.")
             }
-            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let databaseURL = try stateURL("assistant.sqlite")
+            let store = try ObservationStore(fileURL: databaseURL)
             try await store.recoverInterruptedReminders()
+            // Foreground commands and local answers use their own connection. The
+            // indexing actor can spend minutes scanning history without queuing them.
+            let foregroundStore = try ObservationStore(fileURL: databaseURL)
             let phoneSync: PhoneSyncServer?
             if let identity = try MacPhoneIdentity.load() {
                 phoneSync = try PhoneSyncServer(identity: identity, store: store)
@@ -277,14 +281,14 @@ struct AssistantCLI {
             let ownerRouteIDs = Set(selfChats.map(\.id))
             let sessions: [ControlSession] = selfChats.map { route in
                 let conversation = model == "apple" ? ModelConversationService(
-                    store: store, provider: MacModelProvider(), transport: controlTransport,
+                    store: foregroundStore, provider: MacModelProvider(), transport: controlTransport,
                     ledger: ledger, chatID: route.id
                 ) : nil
                 let answerQuestion: (@Sendable (String) async -> String)?
                 if let conversation {
                     answerQuestion = { question in await conversation.begin(question: question) }
                 } else { answerQuestion = nil }
-                let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
+                let handler = ControlCommandHandler(store: foregroundStore, answerQuestion: answerQuestion)
                 let service = EchoService(
                     transport: controlTransport,
                     ledger: ledger,
