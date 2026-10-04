@@ -17,7 +17,12 @@ bash scripts/start.sh
 
 The starter installs `imsg` with Homebrew if needed, builds the local worker, checks Messages
 access, and prompts you to send a one-time code to your private iMessage self-chat. Confirm the
-chat identity it displays. It remembers that chat on this Mac for later runs. No chat ID or model
+chat identity it displays. It remembers that chat on this Mac for later runs. At startup the host
+also looks up your own phone numbers and email addresses on the Contacts Me card, then monitors
+matching direct iMessage routes. It replies through the route that received each command. If
+Contacts has no Me card or access is unavailable, add each other self address once with
+\`.build/release/assistantctl add-self-handle --address <your phone or email>\` and restart.
+The host prints the active route IDs so missing aliases are visible. No chat ID or model
 weights need to be entered. If Homebrew is absent, install it first. macOS requires you to grant
 Full Disk Access to your terminal and, on the first reply, Automation permission for Messages;
 the starter explains a missing grant. Quit and reopen the terminal after Full Disk Access changes.
