@@ -19,7 +19,7 @@ public struct ControlCommandHandler: Sendable {
     public func response(to text: String) async throws -> String? {
         guard let command = Command(text) else {
             let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard question.hasSuffix("?") else { return nil }
+            guard !question.isEmpty else { return nil }
             if let agenda = try await CalendarAgendaService(store: store, clock: clock).response(to: question) {
                 return agenda
             }
@@ -32,7 +32,7 @@ public struct ControlCommandHandler: Sendable {
             if let agenda = try await CalendarAgendaService(store: store, clock: clock).response(to: question) {
                 return agenda
             }
-            guard let answerQuestion else { return "Local answers are disabled. Start serve with --model apple after running scripts/setup-local-model.sh." }
+            guard let answerQuestion else { return "Local answers are disabled. Start serve with a ready local model." }
             return await answerQuestion(question)
         case .forgetting:
             return try await forgettingResponse()
@@ -156,7 +156,7 @@ public struct ControlCommandHandler: Sendable {
     /why <id> — show the stored evidence for a commitment
     /done <id> — mark a commitment complete
     /meeting <exact person> — meeting context from indexed evidence
-    /ask <question> — answer from bounded indexed evidence when the local model is enabled
+    /ask <question> — ask the local model explicitly (ordinary texts also start a chat)
     /pause — stop unsolicited reminders
     /resume — enable the one-per-day due-commitment rule
     /status — show proactive policy and Messages coverage

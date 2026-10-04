@@ -22,13 +22,30 @@ The first run checks prerequisites, builds the local worker, and asks you to sen
 pairing code to your iMessage self-chat. Confirm the chat it finds. Later runs reuse that choice.
 You must grant macOS Full Disk Access to your terminal and Automation permission for Messages
 when prompted. Apple model answers require Apple silicon, macOS 26+, Apple Intelligence enabled,
-and Xcode 26+; other Macs can run the deterministic owner commands. The Mac must stay awake with
+and Xcode 26+. Alternatively, run your own model through a loopback-only local server. The Mac must stay awake with
 the host running. See [the guided setup](docs/local-models.md).
+
+## Bring your own local model
+
+Run a model on the Mac with a local server that implements `/v1/chat/completions`
+and `/v1/models` (for example, Ollama). Then start with:
+
+```bash
+ollama pull gemma3:4b
+ASSISTANT_MODEL=local ASSISTANT_MODEL_NAME=gemma3:4b bash scripts/start.sh
+```
+
+The default local endpoint is `http://127.0.0.1:11434/v1`. Set
+`ASSISTANT_MODEL_URL` for another local port. Only literal loopback HTTP URLs
+(`127.0.0.1` or `::1`) are accepted; redirects are blocked. No API key or
+cloud model is used. Choose a model your Mac can run; the assistant does not
+download weights for you. Personal evidence remains on the Mac and is sent
+only to the chosen local process. Apple Intelligence remains the default model.
 
 ## Current stage: Messages assistant with paired phone context
 
 See [docs/local-models.md](docs/local-models.md) for setup. Install the Mac worker, start the host,
-and text your private Messages self-chat. Pair the optional phone companion once to include
+and text your private Messages self-chat from anywhere the phone and Mac have connectivity. The Mac must remain online and running the host. Pair the optional phone companion once to include
 derived sleep summaries. Mac generation needs Apple Intelligence support and macOS 26+; the
 source companion supports iOS 17+. Build with Xcode 26+.
 
@@ -114,8 +131,7 @@ swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo and control services never
-choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat
-notes are checkpointed without a reply. Send `/help` in the control chat to list commands.
+choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Send `/help` in the control chat to list commands.
 
 `serve` refreshes Messages and commitments every 60 seconds after each completed scan, and
 Calendar/Contacts every 15 minutes. Reminders start paused. `/resume` enables the one M1 rule;
@@ -143,9 +159,9 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 1. Use the assistant in Messages and connect the phone companion's sleep source. Review grounded
    answer usefulness, freshness and real network delivery while dogfooding.
 2. Ship signed native host/login-item support so the Mac host does not need a foreground terminal.
-3. Add optional location, Mail or another model only when a concrete use case requires it.
+3. Add iPhone-local inference and additional phone sources; the companion currently shares only sleep summaries.
 
-The phone queues updates when the Mac is unreachable and uses no cloud relay. Model inference,
+The phone context companion queues updates when the Mac is unreachable and uses no cloud relay. The iMessage conversation relies on Apple's Messages delivery between your phone and Mac; that transport is not an on-prem network path. The phone currently has no local model or offline assistant chat. Model inference,
 source storage, and reduction stay on user-controlled devices. This does not claim unattended
 Mac lifecycle or immediate phone refresh while offline.
 
