@@ -22,7 +22,7 @@ public actor ModelConversationService {
         self.transport = transport
         self.ledger = ledger
         self.chatID = chatID
-        self.history = history ?? (try! ConversationHistory())
+        self.history = history ?? (ConversationHistory())
     }
 
     public func begin(question: String) -> String {
