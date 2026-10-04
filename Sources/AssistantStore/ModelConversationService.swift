@@ -79,6 +79,9 @@ public actor ModelConversationService {
         let started = Date()
         var reply: String
         do {
+            if let transcriptReply = Self.transcriptReply(to: message, history: await history.recent()) {
+                reply = transcriptReply
+            } else {
             let previous = await history.lastUserMessage()
             let request: EvidenceRequest
             if Self.needsPersonalEvidence(message) {
@@ -103,6 +106,7 @@ public actor ModelConversationService {
             }
             try Task.checkCancellation()
             print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -137,6 +141,24 @@ public actor ModelConversationService {
             try? await history.append(user: message, assistant: reply)
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
+    }
+
+    private static func transcriptReply(to message: String, history: [ChatTurn]) -> String? {
+        let words = message.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        let plain = words.joined(separator: " ")
+        if ["what did i just say", "tell me what i just said", "repeat my last message"].contains(plain) {
+            guard let previous = history.last(where: { $0.role == .user })?.text else {
+                return "I don't have an earlier message in this conversation."
+            }
+            return "You said: “\(previous)”"
+        }
+        if ["what did you just say", "repeat your last answer"].contains(plain) {
+            guard let previous = history.last(where: { $0.role == .assistant })?.text else {
+                return "I don't have an earlier answer in this conversation."
+            }
+            return "I said: “\(previous)”"
+        }
+        return nil
     }
 
     private static func needsPersonalEvidence(_ message: String) -> Bool {
