@@ -22,6 +22,10 @@ struct ModelConversationServiceTests {
         let sent = await transport.waitForSend()
         #expect(sent.1 == chat)
         #expect(sent.0.text == "Hello from the local model.")
+        for _ in 0..<50 {
+            if await history.lastUserMessage() == "hello" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
         let saved = try ConversationHistory(fileURL: historyURL)
         #expect(await saved.lastUserMessage() == "hello")
         #expect(await saved.recent().count == 2)
