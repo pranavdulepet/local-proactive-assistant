@@ -143,6 +143,34 @@ struct AssistantCLI {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
             print("Self-chat paired. Start with bash scripts/start.sh.")
 
+        case "add-self-handle":
+            guard let address = takeOption("--address", from: &arguments),
+                  let normalized = PersonHandle.normalize(address),
+                  normalized.contains("@") || normalized.first?.isNumber == true
+                    || normalized.hasPrefix("+") else {
+                throw CLIError("Provide your own iMessage phone number or email with --address.")
+            }
+            let matches = try await transport.chats().filter {
+                !$0.isGroup && $0.service == "iMessage"
+                    && PersonHandle.normalize($0.identifier) == normalized
+            }
+            guard !matches.isEmpty else {
+                throw CLIError("No recent direct iMessage chat uses this address. Text it first, then retry.")
+            }
+            print("Add \(normalized) as one of your own self-chat addresses? Type yes: ", terminator: "")
+            guard readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "yes" else {
+                throw CLIError("No address was saved.")
+            }
+            let url = try stateURL("self-handles.json")
+            var handles = (try? JSONDecoder().decode([String].self, from: Data(contentsOf: url))) ?? []
+            handles.append(normalized)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try JSONEncoder().encode(Array(Set(handles)).sorted()).write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            print("Saved your self-chat address. Restart bash scripts/start.sh to include its route.")
+
         case "echo":
             guard let rawChatID = takeOption("--chat-id", from: &arguments),
                   let chatID = Int64(rawChatID) else {
@@ -542,6 +570,7 @@ struct AssistantCLI {
           assistantctl doctor [--imsg <path>]
           assistantctl chats [--imsg <path>]
           assistantctl pair-chat [--imsg <path>]
+          assistantctl add-self-handle --address <your phone or email>
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
           assistantctl serve [--control-chat-id <id>] [--model apple] [--imsg <path>]
           assistantctl pair-phone [--host <local-hostname-or-LAN-IP>]
