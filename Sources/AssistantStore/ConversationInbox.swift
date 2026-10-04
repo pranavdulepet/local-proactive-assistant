@@ -3,7 +3,7 @@ import Foundation
 
 /// Durable, deduplicated model turns. The inbound cursor advances only after enqueue succeeds.
 public actor ConversationInbox {
-    public enum State: String, Codable, Sendable {
+    public enum State: String, Codable, Equatable, Sendable {
         case queued, generating, sending, submitted, uncertain, failed
     }
 
@@ -15,7 +15,7 @@ public actor ConversationInbox {
         public var state: State
     }
 
-    public enum EnqueueResult: Sendable { case accepted, duplicate, full }
+    public enum EnqueueResult: Equatable, Sendable { case accepted, duplicate, full }
 
     private let fileURL: URL?
     private var turns: [Turn]
