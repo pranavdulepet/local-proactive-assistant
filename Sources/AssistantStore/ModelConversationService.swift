@@ -75,7 +75,7 @@ public actor ModelConversationService {
         } catch {
             reply = "I couldn't answer locally right now. Check model-status on the Mac and try again."
         }
-        print("local answer prepared in \\(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \\(chatID.rawValue)")
+        print("local answer prepared in \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)")
         let outbound = OutboundTransportMessage(text: reply)
         do {
             try await ledger.begin(requestID: outbound.requestID, chatID: chatID, text: outbound.text)
@@ -86,10 +86,10 @@ public actor ModelConversationService {
             print("local answer submitted (not a delivery confirmation)")
         } catch let failure as TransportFailure where failure.retrySafe {
             try? await ledger.cancel(requestID: outbound.requestID)
-            print("chat \\(chatID.rawValue): local answer send did not start")
+            print("chat \(chatID.rawValue): local answer send did not start")
         } catch {
             try? await ledger.markRecovered(requestID: outbound.requestID)
-            print("chat \\(chatID.rawValue): local answer send outcome unknown; no automatic resend")
+            print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
     }
 
