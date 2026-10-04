@@ -39,6 +39,17 @@ public actor MacModelProvider: LocalModelProvider {
         return answer
     }
 
+    public func chat(_ request: ChatRequest) async throws -> ChatReply {
+        try request.validate()
+        guard !generating else { throw LocalModelFailure("A local answer is already in progress.") }
+        generating = true
+        defer { generating = false }
+        let response = try await exchange(ModelWireRequest(operation: .chat, chatRequest: request), timeout: 90)
+        guard let reply = response.chatReply else { throw LocalModelFailure(response.failure ?? "Missing worker conversation reply.") }
+        try reply.validate()
+        return reply
+    }
+
     private func exchange(_ request: ModelWireRequest, timeout: TimeInterval) async throws -> ModelWireResponse {
         try Self.verifySandboxedSignature(at: executable)
         let encoder = JSONEncoder()
