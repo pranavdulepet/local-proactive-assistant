@@ -36,6 +36,9 @@ struct ModelWorker {
             case .answer:
                 guard let request = message.request else { throw LocalModelFailure("Missing evidence request.") }
                 response = ModelWireResponse(answer: try await provider.answer(request))
+            case .chat:
+                guard let request = message.chatRequest else { throw LocalModelFailure("Missing conversation request.") }
+                response = ModelWireResponse(chatReply: try await provider.chat(request))
             }
         } catch {
             // Never echo prompts/source records into diagnostics.
