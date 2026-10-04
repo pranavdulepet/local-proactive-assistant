@@ -62,6 +62,8 @@ public actor ConversationInbox {
         do { try persist() } catch { turns[index].state = previous; throw error }
     }
 
+    public func hasQueued() -> Bool { turns.contains { $0.state == .queued } }
+
     public func counts() -> (queued: Int, uncertain: Int, failed: Int) {
         (turns.filter { $0.state == .queued || $0.state == .generating }.count,
          turns.filter { $0.state == .uncertain || $0.state == .sending }.count,
