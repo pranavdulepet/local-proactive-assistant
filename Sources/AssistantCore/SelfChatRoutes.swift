@@ -18,7 +18,7 @@ public enum SelfChatRoutes {
         return eligible.sorted { $0.id.rawValue < $1.id.rawValue }
     }
 
-    private static func canonical(_ raw: String) -> String? {
+    public static func canonical(_ raw: String) -> String? {
         guard let handle = PersonHandle.normalize(raw) else { return nil }
         if !handle.contains("@") {
             let digits = handle.filter(\.isNumber)
