@@ -10,10 +10,6 @@ final class AssistantPhoneUITests: XCTestCase {
         XCTAssertTrue(instructions.label.contains("private self-chat"))
         XCTAssertFalse(app.buttons["Ask locally"].exists)
         XCTAssertFalse(app.buttons["Enable Calendar"].exists)
-        let advanced = app.buttons["Advanced"]
-        for _ in 0..<3 where !advanced.isHittable { app.swipeUp() }
-        XCTAssertTrue(advanced.isHittable)
-        advanced.tap()
         let tools = app.buttons["phoneModelTools"]
         for _ in 0..<3 where !tools.isHittable { app.swipeUp() }
         XCTAssertTrue(tools.isHittable)
@@ -22,6 +18,7 @@ final class AssistantPhoneUITests: XCTestCase {
         XCTAssertTrue(ask.waitForExistence(timeout: 15))
         for _ in 0..<3 where !ask.isHittable { app.swipeUp() }
         ask.tap()
+        app.swipeUp()
         let answer = app.staticTexts["localAnswer"]
         XCTAssertTrue(answer.waitForExistence(timeout: 45))
         for _ in 0..<3 where !answer.isHittable { app.swipeUp() }

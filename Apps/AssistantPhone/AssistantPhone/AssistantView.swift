@@ -35,13 +35,11 @@ struct AssistantView: View {
                     Text("Optional phone sources are used only for answers inside this app. They are not connected to your Messages assistant yet.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
-                Section {
-                    DisclosureGroup("Advanced") {
-                        Button("On-phone model tools") { showingLocalTools = true }
-                            .accessibilityIdentifier("phoneModelTools")
-                        Text("Test answers that run on this phone, or import a Mac snapshot. This is separate from chatting in Messages.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                Section("Optional on-phone answers") {
+                    Button("Ask on this phone") { showingLocalTools = true }
+                        .accessibilityIdentifier("phoneModelTools")
+                    Text("Use the phone's own model when you want an answer here. Your Messages conversation is answered by the Mac.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Local Assistant")
@@ -172,7 +170,7 @@ private struct PhoneModelToolsView: View {
                 }
             }
         }
-        .navigationTitle("On-phone model tools")
+        .navigationTitle("On-phone answers")
         .fileImporter(isPresented: $importing, allowedContentTypes: [.assistantContext, .json], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first { model.importContext(from: url) }
         }

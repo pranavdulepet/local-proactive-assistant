@@ -76,7 +76,7 @@ The phone companion opens with the Messages instructions. It is optional for eve
 **Phone sources** controls Calendar, Contacts and sleep access for on-phone answers only; these
 sources are not yet synced to the Mac or used by the Messages assistant.
 
-For a separate phone-local test, open **Advanced → On-phone model tools** and start with
+For a separate phone-local test, open **Ask on this phone** and start with
 **Demo → Ask locally**. The only supplied fact is a public project deadline of Friday
 at 5 PM. Check the generated answer and visible citation. Then select **This phone** and open
 **Choose phone sources** to enable the sources you want. Calendar is limited to the next seven days;
@@ -103,7 +103,7 @@ through a transfer you select, such as AirDrop. Open it in Local Assistant or ch
 context** in the app. The phone’s model runs locally over those records. The original export time
 and a snapshot warning stay visible; asking again does not make the sources fresh. Delete the
 export when finished. Exported context files are ignored by git. The import control is under
-**Advanced → On-phone model tools**; opening a context file directly takes you to those tools.
+**Ask on this phone**; opening a context file directly takes you to on-phone answers.
 
 This is explicit snapshot transfer, not authenticated live device sync. It does not implement
 Bonjour pairing, keychain credentials, HTTPS delivery/acknowledgment, an offline derived-event
