@@ -53,11 +53,11 @@ struct ModelConversationServiceTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(try await service.begin(question: "Tell me what I just said") == nil)
-        _ = await transport.waitForSend(count: 2)
+        let second = await transport.waitForSend(count: 2)
+        #expect(second.0.text == "You said: “Hello!”")
         let requests = await provider.captured()
-        #expect(requests.count == 2)
+        #expect(requests.count == 1)
         #expect(requests.allSatisfy { $0.records.isEmpty && $0.coverage.isEmpty })
-        #expect(requests[1].history.contains { $0.text == "Hello!" })
     }
 
     @Test func ambiguousDeliveryKeepsContextForTheNextQuestion() async throws {
