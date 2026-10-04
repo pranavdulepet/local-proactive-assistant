@@ -267,9 +267,11 @@ struct AssistantCLI {
             let databaseURL = try stateURL("assistant.sqlite")
             let store = try ObservationStore(fileURL: databaseURL)
             try await store.recoverInterruptedReminders()
-            // Foreground commands and local answers use their own connection. The
-            // indexing actor can spend minutes scanning history without queuing them.
-            let foregroundStore = try ObservationStore(fileURL: databaseURL)
+            // Commands and model retrieval use separate WAL readers. Neither
+            // waits in the indexing actor's queue, and a long retrieval cannot
+            // delay /status or /pause.
+            let commandStore = try ObservationStore(fileURL: databaseURL)
+            let answerStore = try ObservationStore(fileURL: databaseURL)
             let phoneSync: PhoneSyncServer?
             if let identity = try MacPhoneIdentity.load() {
                 phoneSync = try PhoneSyncServer(identity: identity, store: store)
@@ -281,14 +283,14 @@ struct AssistantCLI {
             let ownerRouteIDs = Set(selfChats.map(\.id))
             let sessions: [ControlSession] = selfChats.map { route in
                 let conversation = model == "apple" ? ModelConversationService(
-                    store: foregroundStore, provider: MacModelProvider(), transport: controlTransport,
+                    store: answerStore, provider: MacModelProvider(), transport: controlTransport,
                     ledger: ledger, chatID: route.id
                 ) : nil
                 let answerQuestion: (@Sendable (String) async -> String)?
                 if let conversation {
                     answerQuestion = { question in await conversation.begin(question: question) }
                 } else { answerQuestion = nil }
-                let handler = ControlCommandHandler(store: foregroundStore, answerQuestion: answerQuestion)
+                let handler = ControlCommandHandler(store: commandStore, answerQuestion: answerQuestion)
                 let service = EchoService(
                     transport: controlTransport,
                     ledger: ledger,
