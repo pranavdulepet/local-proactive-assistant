@@ -31,6 +31,8 @@ public struct EchoService: Sendable {
     private let ledger: OutboundLedger
     private let cursorStore: CursorStore
     private let reply: @Sendable (String) async throws -> String?
+    private let replyMessage: (@Sendable (InboundTransportMessage) async throws -> String?)?
+    private let checkpointAfterReply: Bool
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
     private let onReconnect: @Sendable (Int, TimeInterval, String) -> Void
     private let onProgress: @Sendable (TransportCursor, String) -> Void
@@ -41,6 +43,8 @@ public struct EchoService: Sendable {
         ledger: OutboundLedger,
         cursorStore: CursorStore = CursorStore(),
         reply: @escaping @Sendable (String) async throws -> String? = { "echo: \($0)" },
+        replyMessage: (@Sendable (InboundTransportMessage) async throws -> String?)? = nil,
+        checkpointAfterReply: Bool = false,
         reconnectDelay: @escaping @Sendable (Int) -> TimeInterval = { attempt in
             min(pow(2, Double(attempt - 1)), 30)
         },
@@ -52,6 +56,8 @@ public struct EchoService: Sendable {
         self.ledger = ledger
         self.cursorStore = cursorStore
         self.reply = reply
+        self.replyMessage = replyMessage
+        self.checkpointAfterReply = checkpointAfterReply
         self.reconnectDelay = reconnectDelay
         self.onReconnect = onReconnect
         self.onProgress = onProgress
@@ -105,12 +111,23 @@ public struct EchoService: Sendable {
                                     "noticed at \(ISO8601DateFormatter().string(from: observedAt)); "
                                         + "Messages row age \(Int(observedAt.timeIntervalSince(message.createdAt)))s"
                                 )
-                                // Checkpoint before invoking the handler: model work or a
-                                // state-changing command can begin inside reply().
-                                try await cursorStore.advance(chatID: chatID, to: message.cursor)
-                                lastCursor = max(lastCursor ?? message.cursor, message.cursor)
+                                // The host persists model turns inside replyMessage before
+                                // checkpointing. Legacy echo keeps its existing order.
+                                if !checkpointAfterReply {
+                                    try await cursorStore.advance(chatID: chatID, to: message.cursor)
+                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
+                                }
                                 let handlerStarted = Date()
-                                let replyText = try await reply(message.text)
+                                let replyText: String?
+                                if let replyMessage {
+                                    replyText = try await replyMessage(message)
+                                } else {
+                                    replyText = try await reply(message.text)
+                                }
+                                if checkpointAfterReply {
+                                    try await cursorStore.advance(chatID: chatID, to: message.cursor)
+                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
+                                }
                                 onProgress(
                                     message.cursor,
                                     "reply prepared in \(Int(Date().timeIntervalSince(handlerStarted) * 1_000))ms"

@@ -4,15 +4,18 @@ import Foundation
 public struct ControlCommandHandler: Sendable {
     private let store: ObservationStore
     private let clock: @Sendable () -> Date
-    private let answerQuestion: (@Sendable (String) async -> String?)?
+    private let inbox: ConversationInbox?
+    private let answerQuestion: (@Sendable (String) async throws -> String?)?
 
     public init(
         store: ObservationStore,
         clock: @escaping @Sendable () -> Date = Date.init,
-        answerQuestion: (@Sendable (String) async -> String?)? = nil
+        inbox: ConversationInbox? = nil,
+        answerQuestion: (@Sendable (String) async throws -> String?)? = nil
     ) {
         self.store = store
         self.clock = clock
+        self.inbox = inbox
         self.answerQuestion = answerQuestion
     }
 
@@ -24,7 +27,7 @@ public struct ControlCommandHandler: Sendable {
                 return agenda
             }
             guard let answerQuestion else { return nil }
-            return await answerQuestion(question)
+            return try await answerQuestion(question)
         }
 
         switch command {
@@ -33,7 +36,7 @@ public struct ControlCommandHandler: Sendable {
                 return agenda
             }
             guard let answerQuestion else { return "Local answers are disabled. Start serve with a ready local model." }
-            return await answerQuestion(question)
+            return try await answerQuestion(question)
         case .forgetting:
             return try await forgettingResponse()
         case .why(let id):
@@ -60,6 +63,10 @@ public struct ControlCommandHandler: Sendable {
                     continue
                 }
                 lines.append("\(coverage.source.rawValue): \(coverage.status.rawValue), synced \(Self.timestamp(coverage.lastSuccessfulSync)).")
+            }
+            if let inbox {
+                let work = await inbox.counts()
+                lines.append("Assistant replies: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.")
             }
             return lines.joined(separator: "\n")
         case .meeting(let person):
