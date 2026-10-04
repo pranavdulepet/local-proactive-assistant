@@ -107,14 +107,13 @@ struct AssistantCLI {
             let health = await transport.probe()
             guard health.ready else { throw CLIError("Messages is unavailable: \(health.detail)") }
             let code = "LOCAL-" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12))
-            let started = Date()
             print("On your iPhone, send \(code) to your private iMessage self-chat.")
             print("Waiting up to two minutes for that exact message...")
             var matchedChat: TransportChat?
             var matchedCursor: TransportCursor?
             for _ in 0..<60 {
                 let matches = try await transport.matchingMessages(code)
-                if let match = matches.first(where: { $0.isFromMe && $0.createdAt >= started.addingTimeInterval(-5) }) {
+                if let match = matches.first(where: { $0.isFromMe }) {
                     matchedCursor = match.cursor
                     matchedChat = try await transport.chats().first {
                         $0.id == match.chatID && !$0.isGroup && $0.service == "iMessage"
