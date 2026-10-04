@@ -206,7 +206,9 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
                 } catch is CancellationError {
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    continuation.finish(throwing: TransportFailure(
+                        "imsg chat catchup failed: \(error)", retrySafe: true
+                    ))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
