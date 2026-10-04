@@ -303,7 +303,7 @@ struct AssistantCLI {
                             let key = "\(route.id.rawValue):"
                                 + (message.guid.isEmpty ? "row:\(message.cursor.rawValue)" : message.guid)
                             answerQuestion = { question in
-                                await conversation.begin(question: question, to: route.id, sourceID: key)
+                                try await conversation.begin(question: question, to: route.id, sourceID: key)
                             }
                         } else { answerQuestion = nil }
                         let handler = ControlCommandHandler(store: commandStore, answerQuestion: answerQuestion)
