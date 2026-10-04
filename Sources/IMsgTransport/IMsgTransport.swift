@@ -63,6 +63,20 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         )
     }
 
+    public func matchingMessages(_ query: String) async throws -> [InboundTransportMessage] {
+        let result = try await rpc(
+            method: "messages.search",
+            params: ["query": query, "match": "exact", "limit": 20]
+        )
+        guard let rawMessages = result["messages"] as? [[String: Any]] else {
+            throw TransportFailure("imsg returned an invalid search response.")
+        }
+        let data = try JSONSerialization.data(withJSONObject: rawMessages)
+        return try JSONDecoder().decode([IMsgMessage].self, from: data)
+            .map { try $0.transportMessage }
+            .filter { $0.text == query }
+    }
+
     public func subscribe(
         chatID: TransportChatID,
         after cursor: TransportCursor?
