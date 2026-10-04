@@ -80,21 +80,20 @@ public actor ModelConversationService {
         var reply: String
         do {
             let previous = await history.lastUserMessage()
-            let query = Self.retrievalQuery(message, previous: previous)
-            let request = try await EvidenceRetriever(store: store).request(question: query)
+            let request: EvidenceRequest
+            if let query = ConversationContextRouter.retrievalQuery(for: message, previous: previous) {
+                request = try await EvidenceRetriever(store: store).request(question: query)
+            } else {
+                request = EvidenceRequest(question: message, records: [], coverage: [])
+            }
             let retrievedAt = Date()
             print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
-            if message.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?"),
-               !request.records.isEmpty {
-                reply = try await AnswerService(provider: provider).answer(request).text
-            } else {
-                let chat = ChatRequest(
-                    message: message, history: await history.recent(),
-                    records: request.records, coverage: request.coverage
-                )
-                try chat.validate()
-                reply = try await provider.chat(chat).text
-            }
+            let chat = ChatRequest(
+                message: message, history: await history.recent(),
+                records: request.records, coverage: request.coverage
+            )
+            try chat.validate()
+            reply = try await provider.chat(chat).text
             try Task.checkCancellation()
             print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
         } catch is CancellationError {
@@ -133,12 +132,4 @@ public actor ModelConversationService {
         }
     }
 
-    private static func retrievalQuery(_ message: String, previous: String?) -> String {
-        let lower = message.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let follows = lower.hasPrefix("and ") || lower.hasPrefix("what about")
-            || lower.hasPrefix("tell me more") || lower.hasPrefix("when is it")
-            || lower.hasPrefix("who is that")
-        guard follows, let previous else { return message }
-        return EvidenceText.bounded(previous + " " + message, bytes: 512)
-    }
 }

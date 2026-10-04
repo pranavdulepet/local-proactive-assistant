@@ -31,6 +31,36 @@ struct ModelConversationServiceTests {
         #expect(await saved.recent().count == 2)
     }
 
+    @Test func greetingsAndTranscriptQuestionsUseConversationWithoutIndexedMessages() async throws {
+        let store = try ObservationStore()
+        try await store.record(Observation(
+            source: .messages, externalID: "greeting", versionHash: "v1",
+            sourceRevision: 1, observedAt: Date(), trust: .ownerAuthored,
+            text: "Hello! This is an unrelated indexed message.", locator: "imsg:greeting"
+        ))
+        let provider = TestChatModel()
+        let transport = AnswerTransport()
+        let history = ConversationHistory()
+        let service = ModelConversationService(
+            store: store, provider: provider, transport: transport,
+            ledger: try OutboundLedger(), chatID: TransportChatID(rawValue: 954),
+            history: history
+        )
+        #expect(try await service.begin(question: "Hello!") == nil)
+        _ = await transport.waitForSend()
+        for _ in 0..<50 {
+            if await history.lastUserMessage() == "Hello!" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try await service.begin(question: "Tell me what I just said") == nil)
+        let second = await transport.waitForSend(count: 2)
+        #expect(second.0.text == "Hello from the local model.")
+        let requests = await provider.captured()
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.records.isEmpty && $0.coverage.isEmpty })
+        #expect(requests[1].history.contains { $0.text == "Hello!" })
+    }
+
     @Test func ambiguousDeliveryKeepsContextForTheNextQuestion() async throws {
         let history = ConversationHistory()
         let transport = AnswerTransport(unknownOutcome: true)
@@ -56,7 +86,7 @@ struct ModelConversationServiceTests {
         let ledger = try OutboundLedger()
         let chat = TransportChatID(rawValue: 955)
         let service = ModelConversationService(store: store, provider: provider, transport: transport, ledger: ledger, chatID: chat)
-        #expect(try await service.begin(question: "What is the project deadline?") == nil)
+        #expect(try await service.begin(question: "What did we say about the project?") == nil)
         await provider.waitUntilStarted()
         let secondRoute = TransportChatID(rawValue: 954)
         #expect(try await service.begin(question: "another question", to: secondRoute) == nil)
@@ -80,21 +110,26 @@ private actor WaitingModel: LocalModelProvider {
     private var startedWaiter: CheckedContinuation<Void, Never>?
     private var gate: CheckedContinuation<Void, Never>?
     func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "test") }
-    func answer(_ request: EvidenceRequest) async throws -> GroundedAnswer {
-        await withCheckedContinuation { continuation in
-            gate = continuation
-            started = true
-            startedWaiter?.resume()
-            startedWaiter = nil
-        }
-        return GroundedAnswer(insufficientEvidence: false, claims: [GroundedClaim(evidenceIDs: [request.records[0].id], text: "The project deadline is Friday.")])
+    func answer(_ request: EvidenceRequest) throws -> GroundedAnswer {
+        throw LocalModelFailure("Unexpected structured answer request")
     }
     func waitUntilStarted() async {
         if started { return }
         await withCheckedContinuation { startedWaiter = $0 }
     }
     func release() { gate?.resume(); gate = nil }
-    func chat(_ request: ChatRequest) -> ChatReply { ChatReply(text: "Second answer") }
+    func chat(_ request: ChatRequest) async -> ChatReply {
+        if !request.records.isEmpty {
+            await withCheckedContinuation { continuation in
+                gate = continuation
+                started = true
+                startedWaiter?.resume()
+                startedWaiter = nil
+            }
+            return ChatReply(text: "The project deadline is Friday. [e1]")
+        }
+        return ChatReply(text: "Second answer")
+    }
 }
 
 private actor AnswerTransport: MessageTransport {
@@ -122,11 +157,14 @@ private actor AnswerTransport: MessageTransport {
 
 private actor TestChatModel: LocalModelProvider {
     nonisolated let modelID = "chat-test"
+    private var requests: [ChatRequest] = []
+    func captured() -> [ChatRequest] { requests }
     func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "ready") }
     func answer(_ request: EvidenceRequest) throws -> GroundedAnswer {
         throw LocalModelFailure("Unexpected evidence request")
     }
     func chat(_ request: ChatRequest) throws -> ChatReply {
-        ChatReply(text: "Hello from the local model.")
+        requests.append(request)
+        return ChatReply(text: "Hello from the local model.")
     }
 }

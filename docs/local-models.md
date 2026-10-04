@@ -1,8 +1,8 @@
 # Use the assistant in Messages
 
-Messages is the only conversation interface. Keep the assistant running on your Mac and text
-its configured private self-chat from your phone. The phone companion only connects phone
-sources; it has no demo, context import, or separate chat screen.
+Messages is the main conversation interface. Keep the assistant running on your Mac and text
+its configured private self-chat from your phone. The companion also offers a separate,
+optional on-phone chat while its app is open on an Apple Intelligence iPhone.
 
 ## Start on your Mac
 
@@ -38,14 +38,35 @@ Calendar, Contacts and Messages come from the Mac. `/forgetting`, `/why`, `/done
 reminders; `/resume` enables the one-per-day rule. Keep the Mac awake and the process running.
 Rerun `bash scripts/start.sh` after a restart or update. Do not run two hosts at once.
 
-The Mac model runs in the signed sandboxed worker installed by setup. If generation is unavailable,
-owner commands continue, but model-backed questions need a compatible Apple Intelligence Mac.
-No remote model service is configured. `model-eval` and `check-model-worker.sh` are developer
-checks, not everyday app steps.
+The default Mac model runs in the signed sandboxed worker installed by setup. For a larger
+open-weight local model, stop the host with Control-C and run:
+
+```bash
+bash scripts/start-open-model.sh
+```
+
+This installs Ollama through Homebrew if needed, starts it on 127.0.0.1, downloads weights once,
+and uses Qwen3.8 27B Q4 (about 18 GB) on a 40 GB+ Mac, Qwen3.5 9B on a 16–39 GB Mac, or
+Qwen3.5 4B on a 12–15 GB Mac. On a 48 GB M4 Pro this is the 27B option. The starter disables
+optional thinking for ordinary quick chat; personal evidence remains on the Mac. Model downloads
+need internet once, while inference does not. `ASSISTANT_OPEN_MODEL=<tag> bash scripts/start-open-model.sh`
+chooses another locally installed Ollama model. Use `bash scripts/start.sh` to return to Apple's
+model. These are starting points based on model size and memory, not measured performance on
+your Mac. Run one host at a time.
+
+For a different local server, set `ASSISTANT_MODEL=local`, `ASSISTANT_MODEL_NAME`, and optionally
+`ASSISTANT_MODEL_URL` when running `start.sh`. The URL must use literal loopback HTTP and a
+`/v1` API. `ASSISTANT_LOCAL_REASONING_EFFORT` can request `none`, `low`, `medium`, or `high`
+if that server supports it. “OpenAI-compatible” is the API shape on your own Mac; this project
+does not require OpenAI or cloud credentials. A custom local server could itself forward
+requests elsewhere, so its configuration matters. If generation is unavailable, owner commands
+continue. `model-eval` and `check-model-worker.sh` are developer checks.
 
 ## Pair the phone companion
 
-The phone companion runs on iOS 17+ and does not need Apple Intelligence. Build it from
+The phone companion can share sources on iOS 17+; its optional on-phone chat needs Apple
+Intelligence and iOS 26+. It currently uses Apple's on-device system model while the app is open.
+It does not run the Mac's 27B model or a downloaded open-weight phone model yet. Build it from
 `Apps/AssistantPhone/AssistantPhone.xcodeproj` using Xcode on your Mac, your development team,
 and your physical iPhone as the destination.
 
@@ -73,8 +94,10 @@ last 24 hours and seven days are uploaded. Raw Health samples stay on the phone.
 Contacts do not need a second phone permission flow because the assistant already reads them on
 its Mac host.
 
-The companion shows when the Mac last acknowledged an update. Then ask in the same Messages
-self-chat: `How much recorded sleep do I have over the last 24 hours?`
+The companion shows when the Mac last acknowledged an update. You can ask its separate local
+chat about allowed phone Calendar, Contacts, and sleep information while the app is open.
+That on-phone chat cannot read Messages or respond to the iMessage conversation if the Mac is
+unavailable. Then ask in the same Messages self-chat: `How much recorded sleep do I have over the last 24 hours?`
 
 HealthKit read denial is not disclosed by Apple. No readable samples can mean missing data or
 read denial; neither is reported as zero sleep. Sleep windows are explicit rolling windows,
@@ -99,5 +122,6 @@ project cloud relay. Keep the Mac host running. A signed native Mac app/login-it
 optional location, Mail, and broader model-based extraction remain separate later work.
 
 The backend contract remains replaceable behind `LocalModelProvider`; Apple's on-device model
-is the configured conversational runtime. The companion derives simple sleep summaries without
-an LLM. Models cannot select recipients, change settings, or run action tools.
+is the default Mac runtime and the current phone runtime. The optional Mac Ollama starter runs
+open weights on localhost. The companion derives simple sleep summaries independently of its
+chat model. Models cannot select recipients, change settings, or run action tools.

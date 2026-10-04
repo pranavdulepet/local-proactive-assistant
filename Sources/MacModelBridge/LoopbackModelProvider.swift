@@ -5,20 +5,23 @@ import LocalInference
 public actor LoopbackModelProvider: LocalModelProvider {
     public nonisolated let modelID: String
     private let modelName: String
+    private let reasoningEffort: String?
     private let baseURL: URL
     private let session: URLSession
 
-    public init(baseURL: URL, modelName: String) throws {
+    public init(baseURL: URL, modelName: String, reasoningEffort: String? = nil) throws {
         guard baseURL.scheme == "http",
               ["127.0.0.1", "::1"].contains(baseURL.host ?? ""),
               baseURL.user == nil, baseURL.password == nil,
               baseURL.query == nil, baseURL.fragment == nil,
               !modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              modelName.utf8.count <= 128 else {
+              modelName.utf8.count <= 128,
+              reasoningEffort == nil || ["none", "low", "medium", "high"].contains(reasoningEffort!) else {
             throw LocalModelFailure("The local model requires an http://127.0.0.1 or http://[::1] endpoint and a model name.")
         }
         self.baseURL = baseURL
         self.modelName = modelName
+        self.reasoningEffort = reasoningEffort
         self.modelID = "local:" + modelName
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
@@ -77,7 +80,7 @@ public actor LoopbackModelProvider: LocalModelProvider {
     }
 
     private func complete(system: String, user: String, temperature: Double) async throws -> String {
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": modelName, "stream": false, "temperature": temperature,
             "max_tokens": 600,
             "messages": [
@@ -85,6 +88,7 @@ public actor LoopbackModelProvider: LocalModelProvider {
                 ["role": "user", "content": user]
             ]
         ]
+        if let reasoningEffort { payload["reasoning_effort"] = reasoningEffort }
         var request = URLRequest(url: url("chat/completions"))
         request.httpMethod = "POST"
         request.timeoutInterval = 90
