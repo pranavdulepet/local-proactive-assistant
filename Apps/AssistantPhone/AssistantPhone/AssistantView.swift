@@ -16,6 +16,28 @@ struct AssistantView: View {
                     Text("This companion connects phone sources. You do not need it open to chat.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
+                Section("Optional: ask this iPhone locally") {
+                    Text("When this app is open, a supported iPhone can use Apple's on-device model with phone Calendar, Contacts, and sleep data you allow. It cannot read your Messages or answer in iMessage while the Mac is offline.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if !model.phoneModelDetail.isEmpty {
+                        Text(model.phoneModelDetail).font(.caption).foregroundStyle(.secondary)
+                    }
+                    TextField("Message to phone model", text: Binding(
+                        get: { model.phoneQuestion },
+                        set: { model.phoneQuestion = $0 }
+                    ))
+                    TextField("Exact contact name (optional)", text: Binding(
+                        get: { model.phoneContactName },
+                        set: { model.phoneContactName = $0 }
+                    ))
+                    Button("Ask on this iPhone") { Task { await model.askOnPhone() } }
+                        .disabled(model.phoneBusy || model.phoneQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Allow phone Calendar") { Task { await model.enablePhoneCalendar() } }
+                    Button("Allow phone Contacts") { Task { await model.enablePhoneContacts() } }
+                    if !model.phoneAnswer.isEmpty {
+                        Text(model.phoneAnswer).textSelection(.enabled)
+                    }
+                }
                 Section("Mac connection") {
                     if let pairing = upload.pairing {
                         Label(pairing.name, systemImage: "desktopcomputer")
@@ -49,7 +71,7 @@ struct AssistantView: View {
                 if !model.notice.isEmpty { Section { Text(model.notice).font(.subheadline) } }
             }
             .navigationTitle("Phone companion")
-            .task { await model.activate() }
+            .task { await model.activate(); await model.checkPhoneModel() }
             .onOpenURL { model.receivePairing($0) }
             .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.activate() } } }
             .alert("Pair with your Mac?", isPresented: Binding(get: { model.pendingPairing != nil }, set: { if !$0 { model.pendingPairing = nil } })) {
