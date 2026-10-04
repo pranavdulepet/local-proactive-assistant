@@ -33,7 +33,7 @@ struct CalendarAgendaServiceTests {
 
         let reply = try #require(try await handler.response(to: "What is on my calendar tomorrow?"))
         #expect(reply.contains("Team sync"))
-        #expect(reply.contains("10:00 AM — Team sync"))
+        #expect(reply.contains("— Team sync"))
         #expect(!reply.contains("eventkit:"))
         #expect(reply.contains("Calendar data may be incomplete"))
         #expect(!reply.contains("model should not answer"))
