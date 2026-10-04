@@ -156,7 +156,9 @@ struct IMsgTransportTests {
           *'"method":"messages.history"'*)
             printf '{"jsonrpc":"2.0","id":"%s","result":{"messages":[{"id":100}]}}\n' "$request_id"
             ;;
-          *'"method":"messages.after"'*'"chat_id":42'*'"since_rowid":100'*|*'"method":"messages.after"'*'"since_rowid":100'*'"chat_id":42'*)
+          *'"method":"messages.after"'*)
+            printf '%s\\n' "$request" | grep -q '"chat_id":42' || exit 2
+            printf '%s\\n' "$request" | grep -q '"since_rowid":100' || exit 2
             printf '{"jsonrpc":"2.0","id":"%s","result":{"messages":[{"id":101,"guid":"new-command","chat_id":42,"text":"/status","is_from_me":true,"created_at":"2026-09-27T00:57:57.794Z"}],"next_rowid":101,"has_more":false}}\n' "$request_id"
             ;;
           *)
