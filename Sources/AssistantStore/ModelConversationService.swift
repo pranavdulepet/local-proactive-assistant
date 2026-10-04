@@ -54,9 +54,10 @@ public actor ModelConversationService {
     }
 
     private func drain() async {
+        var storageFailed = false
         defer {
             active = nil
-            Task { await self.resumePending() }
+            if !storageFailed { Task { await self.resumePending() } }
         }
         while !Task.isCancelled {
             let next: ConversationInbox.Turn
@@ -64,6 +65,7 @@ public actor ModelConversationService {
                 guard let turn = try await inbox.claim() else { break }
                 next = turn
             } catch {
+                storageFailed = true
                 print("conversation inbox unavailable: \(error)")
                 break
             }
