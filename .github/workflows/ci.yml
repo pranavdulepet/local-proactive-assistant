@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Check starter syntax
         run: bash -n scripts/start.sh scripts/start-open-model.sh
+      - name: Test open-model setup recovery
+        run: python3 Tests/ScriptTests/test_open_model_starter.py
       - name: Test
         run: swift test
       - name: Install and probe sandboxed model worker
