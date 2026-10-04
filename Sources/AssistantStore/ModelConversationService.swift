@@ -39,7 +39,7 @@ public actor ModelConversationService {
 
     private func run(message: String) async {
         defer { active = nil }
-        let reply: String
+        var reply: String
         do {
             let previous = await history.lastUserMessage()
             let query = Self.retrievalQuery(message, previous: previous)
