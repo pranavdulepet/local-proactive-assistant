@@ -99,6 +99,12 @@ public actor OutboundLedger {
         Set(entries.filter(\.needsRecovery).map(\.chatID))
     }
 
+    public func markRecovered(requestID: UUID) throws {
+        guard let index = entries.firstIndex(where: { $0.requestID == requestID }) else { return }
+        entries[index].needsRecovery = false
+        try persist()
+    }
+
     public func markRecovered(chatID: TransportChatID) throws {
         for index in entries.indices where entries[index].chatID == chatID {
             entries[index].needsRecovery = false
