@@ -5,6 +5,28 @@ import Testing
 @testable import AssistantStore
 
 struct ModelConversationServiceTests {
+    @Test func ordinaryTextUsesOnDeviceChatAndPersistsRecentTurns() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let historyURL = directory.appendingPathComponent("conversation.json")
+        let history = try ConversationHistory(fileURL: historyURL)
+        let transport = AnswerTransport()
+        let chat = TransportChatID(rawValue: 954)
+        let service = ModelConversationService(
+            store: try ObservationStore(), provider: TestChatModel(),
+            transport: transport, ledger: try OutboundLedger(),
+            chatID: chat, history: history
+        )
+        #expect(await service.begin(question: "hello") == "Let me check.")
+        let sent = await transport.waitForSend()
+        #expect(sent.1 == chat)
+        #expect(sent.0.text == "Hello from the local model.")
+        let saved = try ConversationHistory(fileURL: historyURL)
+        #expect(await saved.lastUserMessage() == "hello")
+        #expect(await saved.recent().count == 2)
+    }
+
     @Test func slowInferenceKeepsPauseAvailableAndNeverChoosesARecipient() async throws {
         let store = try ObservationStore()
         try await store.record(Observation(source: .messages, externalID: "deadline", versionHash: "v1", sourceRevision: 1, observedAt: Date(), trust: .ownerAuthored, text: "The project deadline is Friday.", locator: "imsg:deadline"))
@@ -63,5 +85,16 @@ private actor AnswerTransport: MessageTransport {
     func waitForSend() async -> (OutboundTransportMessage, TransportChatID) {
         if let sent { return sent }
         return await withCheckedContinuation { waiter = $0 }
+    }
+}
+
+private actor TestChatModel: LocalModelProvider {
+    nonisolated let modelID = "chat-test"
+    func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "ready") }
+    func answer(_ request: EvidenceRequest) throws -> GroundedAnswer {
+        throw LocalModelFailure("Unexpected evidence request")
+    }
+    func chat(_ request: ChatRequest) throws -> ChatReply {
+        ChatReply(text: "Hello from the local model.")
     }
 }
