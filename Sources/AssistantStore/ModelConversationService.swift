@@ -30,20 +30,16 @@ public actor ModelConversationService {
     }
 
     /// A nil response means the turn is durably queued; only the final answer is sent.
-    public func begin(question: String, to chatID: TransportChatID? = nil, sourceID: String? = nil) async -> String? {
+    public func begin(question: String, to chatID: TransportChatID? = nil, sourceID: String? = nil) async throws -> String? {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               question.utf8.count <= 512 else { return "Send a message of at most 512 bytes." }
         let id = sourceID ?? UUID().uuidString
-        do {
-            switch try await inbox.enqueue(id: id, question: question, chatID: chatID ?? defaultChatID) {
-            case .accepted, .duplicate:
-                await resumePending()
-                return nil
-            case .full:
-                return "I have too many messages queued. Try again after the current answers arrive."
-            }
-        } catch {
-            return "I couldn't save this message locally. Please send it again."
+        switch try await inbox.enqueue(id: id, question: question, chatID: chatID ?? defaultChatID) {
+        case .accepted, .duplicate:
+            await resumePending()
+            return nil
+        case .full:
+            return "I have too many messages queued. Try again after the current answers arrive."
         }
     }
 
