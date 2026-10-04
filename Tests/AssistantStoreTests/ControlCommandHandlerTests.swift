@@ -7,12 +7,12 @@ struct ControlCommandHandlerTests {
     private let now = Date(timeIntervalSince1970: 2_000_000_000)
 
     @Test
-    func routesExplicitAndPlainQuestionsWithoutTreatingNotesAsQuestions() async throws {
+    func routesExplicitCommandsAndOrdinaryConversation() async throws {
         let store = try ObservationStore()
         let handler = ControlCommandHandler(store: store, answerQuestion: { "question: \($0)" })
         #expect(try await handler.response(to: "/ask project deadline") == "question: project deadline")
         #expect(try await handler.response(to: "What is the deadline?") == "question: What is the deadline?")
-        #expect(try await handler.response(to: "note to self") == nil)
+        #expect(try await handler.response(to: "hello") == "question: hello")
         #expect(try await handler.response(to: "/pause")?.contains("paused") == true)
         #expect(try await store.proactivityStatus().paused)
         let disabled = ControlCommandHandler(store: store)
