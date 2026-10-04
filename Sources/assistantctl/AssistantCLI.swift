@@ -287,21 +287,29 @@ struct AssistantCLI {
             defer { phoneSync?.stop() }
             let controlTransport = PollingIMsgTransport(base: transport)
             let ownerRouteIDs = Set(selfChats.map(\.id))
+            let inbox = try ConversationInbox(fileURL: try stateURL("conversation-inbox.json"))
             let conversation = provider.map { selected in ModelConversationService(
                 store: answerStore, provider: selected, transport: controlTransport,
-                ledger: ledger, chatID: chat, history: chatHistory
+                ledger: ledger, chatID: chat, history: chatHistory, inbox: inbox
             ) }
             let sessions: [ControlSession] = selfChats.map { route in
-                let answerQuestion: (@Sendable (String) async -> String?)?
-                if let conversation {
-                    answerQuestion = { question in await conversation.begin(question: question, to: route.id) }
-                } else { answerQuestion = nil }
-                let handler = ControlCommandHandler(store: commandStore, answerQuestion: answerQuestion)
                 let service = EchoService(
                     transport: controlTransport,
                     ledger: ledger,
                     cursorStore: cursorStore,
-                    reply: { text in try await handler.response(to: text) },
+                    replyMessage: { message in
+                        let answerQuestion: (@Sendable (String) async throws -> String?)?
+                        if let conversation {
+                            let key = "\(route.id.rawValue):"
+                                + (message.guid.isEmpty ? "row:\(message.cursor.rawValue)" : message.guid)
+                            answerQuestion = { question in
+                                try await conversation.begin(question: question, to: route.id, sourceID: key)
+                            }
+                        } else { answerQuestion = nil }
+                        let handler = ControlCommandHandler(store: commandStore, answerQuestion: answerQuestion)
+                        return try await handler.response(to: message.text)
+                    },
+                    checkpointAfterReply: true,
                     onReconnect: { attempt, delay, detail in
                         print("chat \(route.id.rawValue) catchup interrupted: \(detail); "
                             + "retrying in \(Int(delay))s (attempt \(attempt))")
@@ -316,7 +324,12 @@ struct AssistantCLI {
             }
             print("Serving owner commands. Press Control-C to stop.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
-            if model != nil { print("Ready: text the assistant naturally in your verified Messages self-chat.") }
+            if model != nil {
+                let work = await inbox.counts()
+                print("Ready: text the assistant naturally in your verified Messages self-chat.")
+                print("Conversation inbox: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.")
+                await conversation?.resumePending()
+            }
             if selfChats.count == 1 {
                 print("Only one route found. If your self-chat also uses another phone or email, "
                     + "add it with assistantctl add-self-handle --address <your address>.")
