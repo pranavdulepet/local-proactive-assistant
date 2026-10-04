@@ -37,6 +37,23 @@ public actor ContactsStoreSource: ContactSource {
         }
     }
 
+    /// Addresses explicitly listed on the user's Contacts Me card.
+    public func selfHandles() throws -> Set<String> {
+        #if os(macOS)
+        let keys = [CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
+        let me = try contactStore.unifiedMeContactWithKeys(toFetch: keys)
+        let phones = me.phoneNumbers.compactMap {
+            Self.normalizedPhoneNumber($0.value.stringValue)
+        }
+        let emails = me.emailAddresses.compactMap {
+            Self.normalizedEmailAddress($0.value as String)
+        }
+        return Set(phones + emails)
+        #else
+        return []
+        #endif
+    }
+
     public func contacts() throws -> [ContactRecord] {
         let keys = [
             CNContactIdentifierKey,

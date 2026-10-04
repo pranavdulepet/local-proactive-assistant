@@ -19,10 +19,10 @@ public actor HostRefreshService {
         calendar: any CalendarEventSource,
         contacts: any ContactSource,
         store: ObservationStore,
-        controlChatID: TransportChatID
+        controlChatIDs: Set<TransportChatID>
     ) {
         self.store = store
-        self.messages = MessagesIngestor(source: messages, store: store, excludedChatIDs: [controlChatID])
+        self.messages = MessagesIngestor(source: messages, store: store, excludedChatIDs: controlChatIDs)
         self.calendar = CalendarIngestor(source: calendar, store: store)
         self.contacts = ContactsIngestor(source: contacts, store: store)
     }
