@@ -264,9 +264,10 @@ struct AssistantCLI {
                 print("Paired phone sync listening on local HTTPS port \(identity.pairing.server.port ?? 8765).")
             } else { phoneSync = nil }
             defer { phoneSync?.stop() }
+            let controlTransport = PollingIMsgTransport(base: transport)
             let sessions: [ControlSession] = selfChats.map { route in
                 let conversation = model == "apple" ? ModelConversationService(
-                    store: store, provider: MacModelProvider(), transport: transport,
+                    store: store, provider: MacModelProvider(), transport: controlTransport,
                     ledger: ledger, chatID: route.id
                 ) : nil
                 let answerQuestion: (@Sendable (String) async -> String)?
@@ -275,7 +276,7 @@ struct AssistantCLI {
                 } else { answerQuestion = nil }
                 let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
                 let service = EchoService(
-                    transport: PollingIMsgTransport(base: transport),
+                    transport: controlTransport,
                     ledger: ledger,
                     cursorStore: cursorStore,
                     reply: { text in try await handler.response(to: text) },
@@ -298,7 +299,7 @@ struct AssistantCLI {
                 contacts: ContactsStoreSource(), store: store,
                 controlChatIDs: Set(selfChats.map(\.id))
             )
-            let reminders = ProactiveReminderService(store: store, transport: transport, ledger: ledger)
+            let reminders = ProactiveReminderService(store: store, transport: controlTransport, ledger: ledger)
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for session in sessions {
