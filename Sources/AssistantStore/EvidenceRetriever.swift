@@ -64,10 +64,12 @@ public struct EvidenceRetriever: Sendable {
                 observations = try await store.search("\"\(name)\"", sources: [.contacts], limit: 8)
                     .map(\.observation)
             } else if !words.isDisjoint(with: ["message", "messages", "imessage", "sms", "text", "texts", "texted", "said", "say", "sent", "send", "told", "replied", "discussed", "decided", "agreed"]) {
-                let name = terms.last
-                let people = try await name.map {
-                    try await store.search("\"\($0)\"", sources: [.contacts], limit: 8)
-                } ?? []
+                let people: [ObservationSearchHit]
+                if let name = terms.last {
+                    people = try await store.search("\"\(name)\"", sources: [.contacts], limit: 8)
+                } else {
+                    people = []
+                }
                 if people.count == 1, !people[0].observation.handles.isEmpty {
                     observations = try await store.currentObservations(
                         source: .messages,
