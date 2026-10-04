@@ -77,6 +77,10 @@ let package = Package(
             dependencies: ["AppleModelAdapter", "LocalInference"]
         ),
         .testTarget(
+            name: "MacModelBridgeTests",
+            dependencies: ["MacModelBridge", "LocalInference"]
+        ),
+        .testTarget(
             name: "LocalInferenceTests",
             dependencies: ["LocalInference"]
         ),
