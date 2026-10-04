@@ -86,7 +86,7 @@ struct ModelConversationServiceTests {
         let ledger = try OutboundLedger()
         let chat = TransportChatID(rawValue: 955)
         let service = ModelConversationService(store: store, provider: provider, transport: transport, ledger: ledger, chatID: chat)
-        #expect(try await service.begin(question: "What is the project deadline?") == nil)
+        #expect(try await service.begin(question: "What did we say about the project?") == nil)
         await provider.waitUntilStarted()
         let secondRoute = TransportChatID(rawValue: 954)
         #expect(try await service.begin(question: "another question", to: secondRoute) == nil)
