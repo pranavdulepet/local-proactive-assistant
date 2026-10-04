@@ -149,8 +149,9 @@ public struct EchoService: Sendable {
                                         )
                                     )
                                 } catch {
-                                    // The send may already be visible on the phone. Keep the
-                                    // ledger entry for echo suppression and keep listening.
+                                    // The send may already be visible on the phone. The
+                                    // input is checkpointed; keep echo suppression and listen.
+                                    try await ledger.markRecovered(requestID: outbound.requestID)
                                     continuation.yield(
                                         EchoEvent(
                                             inbound: message,
