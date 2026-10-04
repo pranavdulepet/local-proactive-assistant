@@ -156,7 +156,7 @@ public struct ControlCommandHandler: Sendable {
     /why <id> — show the stored evidence for a commitment
     /done <id> — mark a commitment complete
     /meeting <exact person> — meeting context from indexed evidence
-    /ask <question> — answer from bounded indexed evidence when the local model is enabled
+    /ask <question> — ask the local model explicitly (ordinary texts also start a chat)
     /pause — stop unsolicited reminders
     /resume — enable the one-per-day due-commitment rule
     /status — show proactive policy and Messages coverage
