@@ -29,7 +29,9 @@ the starter explains a missing grant. Quit and reopen the terminal after Full Di
 
 Text `/status` in the paired self-chat. A response should appear within a few seconds. Then ask
 `What is on my calendar tomorrow?` or send `/ask <question>`. A history poll catches new texts
-even when `imsg`'s watch notification is missed. Ordinary notes are ignored.
+even when `imsg`'s watch notification is missed. Ordinary notes are ignored. If Messages
+reports an uncertain send, the host records that command and keeps listening; it will not
+send the same reply again automatically. Check your phone before texting the command again.
 
 Calendar, Contacts and Messages come from the Mac. `/forgetting`, `/why`, `/done`, `/meeting`,
 `/pause`, `/resume`, `/status` and `/help` remain deterministic. Questions do not enable proactive
