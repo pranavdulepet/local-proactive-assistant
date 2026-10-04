@@ -287,14 +287,14 @@ struct AssistantCLI {
             defer { phoneSync?.stop() }
             let controlTransport = PollingIMsgTransport(base: transport)
             let ownerRouteIDs = Set(selfChats.map(\.id))
+            let conversation = provider.map { selected in ModelConversationService(
+                store: answerStore, provider: selected, transport: controlTransport,
+                ledger: ledger, chatID: chat, history: chatHistory
+            ) }
             let sessions: [ControlSession] = selfChats.map { route in
-                let conversation = provider.map { selected in ModelConversationService(
-                    store: answerStore, provider: selected, transport: controlTransport,
-                    ledger: ledger, chatID: route.id, history: chatHistory
-                ) }
-                let answerQuestion: (@Sendable (String) async -> String)?
+                let answerQuestion: (@Sendable (String) async -> String?)?
                 if let conversation {
-                    answerQuestion = { question in await conversation.begin(question: question) }
+                    answerQuestion = { question in await conversation.begin(question: question, to: route.id) }
                 } else { answerQuestion = nil }
                 let handler = ControlCommandHandler(store: commandStore, answerQuestion: answerQuestion)
                 let service = EchoService(
@@ -352,8 +352,8 @@ struct AssistantCLI {
                                         print("chat \(session.chatID.rawValue) row "
                                             + "\(event.inbound.cursor.rawValue): delivery outcome unknown; not retried")
                                     case .notAttempted:
-                                        print("chat \(session.chatID.rawValue) ignored row "
-                                            + "\(event.inbound.cursor.rawValue): not a command")
+                                        print("chat \(session.chatID.rawValue) accepted row "
+                                            + "\(event.inbound.cursor.rawValue); no immediate reply")
                                     }
                                 case .reject(let reason):
                                     print("chat \(session.chatID.rawValue) ignored row "
