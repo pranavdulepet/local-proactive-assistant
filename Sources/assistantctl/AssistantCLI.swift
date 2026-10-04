@@ -49,7 +49,10 @@ struct AssistantCLI {
             print("Phone pairing revoked. Existing indexed evidence remains until removed; no further uploads are accepted.")
 
         case "model-status":
-            let provider = MacModelProvider()
+            let model = takeOption("--model", from: &arguments) ?? "apple"
+            let localURL = takeOption("--model-url", from: &arguments)
+            let localName = takeOption("--model-name", from: &arguments)
+            let provider = try selectedModel(model, url: localURL, name: localName)
             let state = await provider.availability()
             print("\(provider.modelID): \(state.ready ? "ready" : "unavailable")")
             print(state.detail)
@@ -225,7 +228,9 @@ struct AssistantCLI {
 
         case "serve":
             let model = takeOption("--model", from: &arguments)
-            guard model == nil || model == "apple" else { throw CLIError("The supported local model is --model apple.") }
+            let localURL = takeOption("--model-url", from: &arguments)
+            let localName = takeOption("--model-name", from: &arguments)
+            let provider = try model.map { try selectedModel($0, url: localURL, name: localName) }
             let configuredChatID = try? String(contentsOf: stateURL("control-chat-id.txt"), encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let rawChatID = takeOption("--control-chat-id", from: &arguments) ?? configuredChatID,
@@ -283,10 +288,10 @@ struct AssistantCLI {
             let controlTransport = PollingIMsgTransport(base: transport)
             let ownerRouteIDs = Set(selfChats.map(\.id))
             let sessions: [ControlSession] = selfChats.map { route in
-                let conversation = model == "apple" ? ModelConversationService(
-                    store: answerStore, provider: MacModelProvider(), transport: controlTransport,
+                let conversation = provider.map { selected in ModelConversationService(
+                    store: answerStore, provider: selected, transport: controlTransport,
                     ledger: ledger, chatID: route.id, history: chatHistory
-                ) : nil
+                ) }
                 let answerQuestion: (@Sendable (String) async -> String)?
                 if let conversation {
                     answerQuestion = { question in await conversation.begin(question: question) }
@@ -578,6 +583,19 @@ struct AssistantCLI {
         }
     }
 
+    private static func selectedModel(_ model: String, url: String?, name: String?) throws -> any LocalModelProvider {
+        switch model {
+        case "apple": return MacModelProvider()
+        case "local":
+            guard let url, let parsed = URL(string: url), let name else {
+                throw CLIError("Local model needs --model-url http://127.0.0.1:<port>/v1 and --model-name <installed-model>.")
+            }
+            return try LoopbackModelProvider(baseURL: parsed, modelName: name)
+        default:
+            throw CLIError("Use --model apple or --model local.")
+        }
+    }
+
     private static func takeOption(_ name: String, from arguments: inout [String]) -> String? {
         guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else {
             return nil
@@ -613,7 +631,7 @@ struct AssistantCLI {
           assistantctl pair-chat [--imsg <path>]
           assistantctl add-self-handle --address <your phone or email>
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
-          assistantctl serve [--control-chat-id <id>] [--model apple] [--imsg <path>]
+          assistantctl serve [--control-chat-id <id>] [--model apple|local] [--model-url <loopback-url> --model-name <model>] [--imsg <path>]
           assistantctl pair-phone [--host <local-hostname-or-LAN-IP>]
           assistantctl unpair-phone
           assistantctl model-status
