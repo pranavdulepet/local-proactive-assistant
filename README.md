@@ -159,9 +159,9 @@ For the full device test matrix, see [docs/p0-transport.md](docs/p0-transport.md
 1. Use the assistant in Messages and connect the phone companion's sleep source. Review grounded
    answer usefulness, freshness and real network delivery while dogfooding.
 2. Ship signed native host/login-item support so the Mac host does not need a foreground terminal.
-3. Add iPhone-local inference and additional phone sources; the companion currently shares only sleep summaries.
+3. Expand the on-phone model beyond Apple's system model and add phone-only sources where iOS permits.
 
-The phone context companion queues updates when the Mac is unreachable and uses no cloud relay. The iMessage conversation relies on Apple's Messages delivery between your phone and Mac; that transport is not an on-prem network path. The phone currently has no local model or offline assistant chat. Model inference,
+The phone context companion queues updates when the Mac is unreachable and uses no cloud relay. The iMessage conversation relies on Apple's Messages delivery between your phone and Mac; that transport is not an on-prem network path. The optional phone companion has an on-device Apple model on supported iOS 26 devices while the app is open, with permissioned phone Calendar, Contacts, and Health context. It does not read iMessages or replace the Mac as the Messages responder. Model inference,
 source storage, and reduction stay on user-controlled devices. This does not claim unattended
 Mac lifecycle or immediate phone refresh while offline.
 
