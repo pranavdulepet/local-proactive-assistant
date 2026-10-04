@@ -180,14 +180,14 @@ struct AssistantCLI {
             } else { answerQuestion = nil }
             let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
             let service = EchoService(
-                transport: transport,
+                transport: PollingIMsgTransport(base: transport),
                 ledger: ledger,
                 cursorStore: cursorStore,
                 reply: { text in try await handler.response(to: text) },
                 onReconnect: { attempt, delay, detail in
                     print(
-                        "watch interrupted: \(detail) "
-                            + "reconnecting in \(Int(delay))s (attempt \(attempt))"
+                        "message catchup interrupted: \(detail) "
+                            + "retrying in \(Int(delay))s (attempt \(attempt))"
                     )
                 }
             )
