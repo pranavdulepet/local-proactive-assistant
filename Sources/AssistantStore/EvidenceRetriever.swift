@@ -38,7 +38,7 @@ public struct EvidenceRetriever: Sendable {
         if let meetingPerson {
             let meeting = try await MeetingContextService(store: store, clock: { now }).evidence(for: meetingPerson)
             observations = [meeting.person, meeting.meeting] + Array(meeting.recentMessages.prefix(6))
-        } else if !words.isDisjoint(with: ["forgetting", "commitment", "commitments", "promise", "promised", "deadline"]) {
+        } else if !words.isDisjoint(with: ["forgetting", "commitment", "commitments", "promise", "promised"]) {
             observations = []
             for commitment in try await store.openCommitments(limit: 8) {
                 if let evidence = try await store.commitmentEvidence(id: commitment.id),
