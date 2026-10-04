@@ -35,18 +35,16 @@ struct ConversationContextRouter {
         if !words.isDisjoint(with: sources) { return true }
 
         let pastActions: Set<String> = [
-            "said", "say", "sent", "send", "told", "tell", "replied", "discussed",
+            "said", "say", "sent", "send", "told", "replied", "discussed",
             "decided", "agreed", "asked", "wrote", "written"
         ]
         let person: Set<String> = ["i", "me", "we", "us", "my", "mine", "our", "ours"]
         if !words.isDisjoint(with: pastActions) &&
             (!words.isDisjoint(with: person) || words.contains("who")) {
-            // "Tell me a joke" is a request for conversation, not message history.
-            if words.contains("tell") && words.contains("me") &&
-                words.isDisjoint(with: ["said", "say", "sent", "replied", "discussed", "decided", "agreed", "asked"]) &&
-                !isQuestion {
-                return false
-            }
+            return true
+        }
+        if words.contains("tell") && words.contains("did") &&
+            !words.isDisjoint(with: person) {
             return true
         }
 
