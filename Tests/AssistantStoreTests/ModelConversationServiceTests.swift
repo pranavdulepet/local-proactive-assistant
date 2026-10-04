@@ -31,6 +31,35 @@ struct ModelConversationServiceTests {
         #expect(await saved.recent().count == 2)
     }
 
+    @Test func greetingsAndTranscriptQuestionsUseConversationWithoutIndexedMessages() async throws {
+        let store = try ObservationStore()
+        try await store.record(Observation(
+            source: .messages, externalID: "greeting", versionHash: "v1",
+            sourceRevision: 1, observedAt: Date(), trust: .ownerAuthored,
+            text: "Hello! This is an unrelated indexed message.", locator: "imsg:greeting"
+        ))
+        let provider = TestChatModel()
+        let transport = AnswerTransport()
+        let history = ConversationHistory()
+        let service = ModelConversationService(
+            store: store, provider: provider, transport: transport,
+            ledger: try OutboundLedger(), chatID: TransportChatID(rawValue: 954),
+            history: history
+        )
+        #expect(try await service.begin(question: "Hello!") == nil)
+        _ = await transport.waitForSend()
+        for _ in 0..<50 {
+            if await history.lastUserMessage() == "Hello!" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try await service.begin(question: "Tell me what I just said") == nil)
+        _ = await transport.waitForSend(count: 2)
+        let requests = await provider.captured()
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.records.isEmpty && $0.coverage.isEmpty })
+        #expect(requests[1].history.contains { $0.text == "Hello!" })
+    }
+
     @Test func ambiguousDeliveryKeepsContextForTheNextQuestion() async throws {
         let history = ConversationHistory()
         let transport = AnswerTransport(unknownOutcome: true)
@@ -122,11 +151,14 @@ private actor AnswerTransport: MessageTransport {
 
 private actor TestChatModel: LocalModelProvider {
     nonisolated let modelID = "chat-test"
+    private var requests: [ChatRequest] = []
+    func captured() -> [ChatRequest] { requests }
     func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "ready") }
     func answer(_ request: EvidenceRequest) throws -> GroundedAnswer {
         throw LocalModelFailure("Unexpected evidence request")
     }
     func chat(_ request: ChatRequest) throws -> ChatReply {
-        ChatReply(text: "Hello from the local model.")
+        requests.append(request)
+        return ChatReply(text: "Hello from the local model.")
     }
 }
