@@ -89,6 +89,25 @@ struct ControlCommandHandlerTests {
     }
 
     @Test
+    func separateForegroundConnectionSeesRefreshAndUpdatesPolicy() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("assistant.sqlite")
+        let indexingStore = try ObservationStore(fileURL: databaseURL)
+        let foregroundStore = try ObservationStore(fileURL: databaseURL)
+        let handler = ControlCommandHandler(store: foregroundStore)
+
+        try await indexingStore.refreshCoverage(
+            for: .messages, status: .partial, limitations: [], at: now
+        )
+        #expect(try await handler.response(to: "/status")?.contains("messages: partial") == true)
+
+        _ = try await handler.response(to: "/resume")
+        #expect(try await indexingStore.proactivityStatus().paused == false)
+    }
+
+    @Test
     func persistsPauseAndResumeAndReportsPolicy() async throws {
         let store = try ObservationStore()
         let handler = ControlCommandHandler(store: store)
