@@ -11,12 +11,14 @@ public actor ModelConversationService {
     private let defaultChatID: TransportChatID
     private let history: ConversationHistory
     private var active: Task<Void, Never>?
-    private var pending: [(message: String, chatID: TransportChatID)] = []
+    private let inbox: ConversationInbox
+    private var stopping = false
 
     public init(
         store: ObservationStore, provider: any LocalModelProvider,
         transport: any MessageTransport, ledger: OutboundLedger,
-        chatID: TransportChatID, history: ConversationHistory? = nil
+        chatID: TransportChatID, history: ConversationHistory? = nil,
+        inbox: ConversationInbox? = nil
     ) {
         self.store = store
         self.provider = provider
@@ -24,34 +26,54 @@ public actor ModelConversationService {
         self.ledger = ledger
         self.defaultChatID = chatID
         self.history = history ?? ConversationHistory()
+        self.inbox = inbox ?? ConversationInbox()
     }
 
-    /// A nil response means the text is queued; only the final answer is sent.
-    public func begin(question: String, to chatID: TransportChatID? = nil) -> String? {
+    /// A nil response means the turn is durably queued; only the final answer is sent.
+    public func begin(question: String, to chatID: TransportChatID? = nil, sourceID: String? = nil) async throws -> String? {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               question.utf8.count <= 512 else { return "Send a message of at most 512 bytes." }
-        guard pending.count < 16 else {
+        let id = sourceID ?? UUID().uuidString
+        switch try await inbox.enqueue(id: id, question: question, chatID: chatID ?? defaultChatID) {
+        case .accepted, .duplicate:
+            await resumePending()
+            return nil
+        case .full:
             return "I have too many messages queued. Try again after the current answers arrive."
         }
-        pending.append((question, chatID ?? defaultChatID))
-        if active == nil { active = Task { await self.drain() } }
-        return nil
+    }
+
+    public func resumePending() async {
+        guard !stopping, active == nil, await inbox.hasQueued() else { return }
+        active = Task { await self.drain() }
     }
 
     public func cancel() {
-        pending.removeAll()
+        stopping = true
         active?.cancel()
     }
 
     private func drain() async {
-        defer { active = nil }
-        while !Task.isCancelled && !pending.isEmpty {
-            let next = pending.removeFirst()
-            await run(message: next.message, to: next.chatID)
+        defer {
+            active = nil
+            Task { await self.resumePending() }
+        }
+        while !Task.isCancelled {
+            let next: ConversationInbox.Turn
+            do {
+                guard let turn = try await inbox.claim() else { break }
+                next = turn
+            } catch {
+                print("conversation inbox unavailable: \(error)")
+                break
+            }
+            await run(turn: next)
         }
     }
 
-    private func run(message: String, to chatID: TransportChatID) async {
+    private func run(turn: ConversationInbox.Turn) async {
+        let message = turn.question
+        let chatID = turn.chatID
         let started = Date()
         var reply: String
         do {
@@ -80,23 +102,31 @@ public actor ModelConversationService {
         }
         print("local answer prepared in \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)")
         let outbound = OutboundTransportMessage(text: reply)
-        var sendStarted = false
         do {
             try await ledger.begin(requestID: outbound.requestID, chatID: chatID, text: outbound.text)
+            // Persist the uncertain-send boundary before calling Messages.
+            try await inbox.mark(turn.id, as: .sending)
+        } catch {
+            try? await ledger.cancel(requestID: outbound.requestID)
+            print("chat \(chatID.rawValue): could not persist send intent; no send attempted")
+            return
+        }
+        do {
             // Recipient is fixed by verified host configuration, never model output.
-            sendStarted = true
             let receipt = try await transport.send(outbound, to: chatID)
             try await ledger.confirm(requestID: outbound.requestID, messageGUID: receipt.messageGUID)
+            try await inbox.mark(turn.id, as: .submitted)
             try await history.append(user: message, assistant: reply)
             print("local answer submitted (not a delivery confirmation)")
         } catch let failure as TransportFailure where failure.retrySafe {
             try? await ledger.cancel(requestID: outbound.requestID)
+            try? await inbox.mark(turn.id, as: .failed)
             print("chat \(chatID.rawValue): local answer send did not start")
         } catch {
             try? await ledger.markRecovered(requestID: outbound.requestID)
-            // The transport may have delivered the reply before its confirmation timed out.
-            // Keep the turn so the next queued question can refer to it.
-            if sendStarted { try? await history.append(user: message, assistant: reply) }
+            try? await inbox.mark(turn.id, as: .uncertain)
+            // The reply may be visible on the phone even when confirmation times out.
+            try? await history.append(user: message, assistant: reply)
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
         }
     }
