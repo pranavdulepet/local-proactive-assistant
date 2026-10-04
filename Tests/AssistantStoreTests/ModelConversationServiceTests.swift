@@ -39,7 +39,7 @@ struct ModelConversationServiceTests {
         let ledger = try OutboundLedger()
         let chat = TransportChatID(rawValue: 955)
         let service = ModelConversationService(store: store, provider: provider, transport: transport, ledger: ledger, chatID: chat)
-        #expect(!(await service.begin(question: "project deadline")).isEmpty)
+        #expect(!(await service.begin(question: "What is the project deadline?")).isEmpty)
         await provider.waitUntilStarted()
         #expect(await service.begin(question: "another question").contains("already in progress"))
         let handler = ControlCommandHandler(store: store)
