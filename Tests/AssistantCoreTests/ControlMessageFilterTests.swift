@@ -74,12 +74,45 @@ struct ControlMessageFilterTests {
 
         let filter = ControlMessageFilter(controlChatID: chatID, ledger: ledger)
         let decision = try await filter.evaluate(
-            message(text: "same words", cursor: 12, createdAt: now.addingTimeInterval(31)),
+            message(text: "same words", cursor: 12, createdAt: now.addingTimeInterval(181)),
             after: nil,
             now: now
         )
 
         #expect(decision == .accept)
+    }
+
+    @Test
+    func rejectsLateEchoOnAnotherVerifiedSelfRoute() async throws {
+        let ledger = try OutboundLedger()
+        try await ledger.begin(
+            requestID: UUID(),
+            chatID: chatID,
+            text: "What next?",
+            sentAt: now
+        )
+        let otherRoute = TransportChatID(rawValue: 84)
+        let filter = ControlMessageFilter(
+            controlChatID: otherRoute,
+            ledger: ledger,
+            echoChatIDs: Set([chatID, otherRoute])
+        )
+        let echo = InboundTransportMessage(
+            cursor: TransportCursor(rawValue: 12),
+            guid: UUID().uuidString,
+            chatID: otherRoute,
+            text: "What next?",
+            isFromMe: true,
+            createdAt: now.addingTimeInterval(127)
+        )
+
+        let decision = try await filter.evaluate(
+            echo,
+            after: nil,
+            now: now.addingTimeInterval(127)
+        )
+
+        #expect(decision == .reject(.outboundEcho))
     }
 
     @Test

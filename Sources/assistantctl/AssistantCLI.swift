@@ -274,6 +274,7 @@ struct AssistantCLI {
             } else { phoneSync = nil }
             defer { phoneSync?.stop() }
             let controlTransport = PollingIMsgTransport(base: transport)
+            let ownerRouteIDs = Set(selfChats.map(\.id))
             let sessions: [ControlSession] = selfChats.map { route in
                 let conversation = model == "apple" ? ModelConversationService(
                     store: store, provider: MacModelProvider(), transport: controlTransport,
@@ -292,7 +293,12 @@ struct AssistantCLI {
                     onReconnect: { attempt, delay, detail in
                         print("chat \(route.id.rawValue) catchup interrupted: \(detail); "
                             + "retrying in \(Int(delay))s (attempt \(attempt))")
-                    }
+                    },
+                    onProgress: { cursor, detail in
+                        guard ProcessInfo.processInfo.environment["ASSISTANT_DEBUG"] == "1" else { return }
+                        print("chat \(route.id.rawValue) row \(cursor.rawValue): \(detail)")
+                    },
+                    echoChatIDs: ownerRouteIDs
                 )
                 return ControlSession(chatID: route.id, service: service, conversation: conversation)
             }

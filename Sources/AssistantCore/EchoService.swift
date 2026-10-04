@@ -33,6 +33,8 @@ public struct EchoService: Sendable {
     private let reply: @Sendable (String) async throws -> String?
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
     private let onReconnect: @Sendable (Int, TimeInterval, String) -> Void
+    private let onProgress: @Sendable (TransportCursor, String) -> Void
+    private let echoChatIDs: Set<TransportChatID>
 
     public init(
         transport: any MessageTransport,
@@ -42,7 +44,9 @@ public struct EchoService: Sendable {
         reconnectDelay: @escaping @Sendable (Int) -> TimeInterval = { attempt in
             min(pow(2, Double(attempt - 1)), 30)
         },
-        onReconnect: @escaping @Sendable (Int, TimeInterval, String) -> Void = { _, _, _ in }
+        onReconnect: @escaping @Sendable (Int, TimeInterval, String) -> Void = { _, _, _ in },
+        onProgress: @escaping @Sendable (TransportCursor, String) -> Void = { _, _ in },
+        echoChatIDs: Set<TransportChatID> = []
     ) {
         self.transport = transport
         self.ledger = ledger
@@ -50,6 +54,8 @@ public struct EchoService: Sendable {
         self.reply = reply
         self.reconnectDelay = reconnectDelay
         self.onReconnect = onReconnect
+        self.onProgress = onProgress
+        self.echoChatIDs = echoChatIDs
     }
 
     public func events(
@@ -61,7 +67,8 @@ public struct EchoService: Sendable {
                 do {
                     let filter = ControlMessageFilter(
                         controlChatID: chatID,
-                        ledger: ledger
+                        ledger: ledger,
+                        echoChatIDs: echoChatIDs
                     )
                     let storedCursor = await cursorStore.cursor(for: chatID)
                     var lastCursor = [cursor, storedCursor].compactMap { $0 }.max()
@@ -92,11 +99,23 @@ public struct EchoService: Sendable {
                                     continue
                                 }
 
+                                let observedAt = Date()
+                                onProgress(
+                                    message.cursor,
+                                    "noticed at \(ISO8601DateFormatter().string(from: observedAt)); "
+                                        + "Messages row age \(Int(observedAt.timeIntervalSince(message.createdAt)))s"
+                                )
                                 // Checkpoint before invoking the handler: model work or a
                                 // state-changing command can begin inside reply().
                                 try await cursorStore.advance(chatID: chatID, to: message.cursor)
                                 lastCursor = max(lastCursor ?? message.cursor, message.cursor)
-                                guard let replyText = try await reply(message.text) else {
+                                let handlerStarted = Date()
+                                let replyText = try await reply(message.text)
+                                onProgress(
+                                    message.cursor,
+                                    "reply prepared in \(Int(Date().timeIntervalSince(handlerStarted) * 1_000))ms"
+                                )
+                                guard let replyText else {
                                     continuation.yield(
                                         EchoEvent(
                                             inbound: message,
@@ -113,8 +132,10 @@ public struct EchoService: Sendable {
                                     chatID: chatID,
                                     text: outbound.text
                                 )
+                                let sendStarted = Date()
                                 do {
                                     let receipt = try await transport.send(outbound, to: chatID)
+                                    onProgress(message.cursor, "send returned in \(Int(Date().timeIntervalSince(sendStarted)))s")
                                     try await ledger.confirm(
                                         requestID: outbound.requestID,
                                         messageGUID: receipt.messageGUID
@@ -128,6 +149,7 @@ public struct EchoService: Sendable {
                                         )
                                     )
                                 } catch let failure as TransportFailure where failure.retrySafe {
+                                    onProgress(message.cursor, "send did not start after \(Int(Date().timeIntervalSince(sendStarted)))s")
                                     try await ledger.cancel(requestID: outbound.requestID)
                                     continuation.yield(
                                         EchoEvent(
@@ -138,6 +160,7 @@ public struct EchoService: Sendable {
                                         )
                                     )
                                 } catch {
+                                    onProgress(message.cursor, "send outcome unknown after \(Int(Date().timeIntervalSince(sendStarted)))s")
                                     // The send may already be visible on the phone. The
                                     // input is checkpointed; keep echo suppression and listen.
                                     try await ledger.markRecovered(requestID: outbound.requestID)

@@ -15,10 +15,16 @@ public enum InboundDecision: Equatable, Sendable {
 public struct ControlMessageFilter: Sendable {
     private let controlChatID: TransportChatID
     private let ledger: OutboundLedger
+    private let echoChatIDs: Set<TransportChatID>
 
-    public init(controlChatID: TransportChatID, ledger: OutboundLedger) {
+    public init(
+        controlChatID: TransportChatID,
+        ledger: OutboundLedger,
+        echoChatIDs: Set<TransportChatID> = []
+    ) {
         self.controlChatID = controlChatID
         self.ledger = ledger
+        self.echoChatIDs = echoChatIDs
     }
 
     public func evaluate(
@@ -29,6 +35,7 @@ public struct ControlMessageFilter: Sendable {
         if try await ledger.contains(
             messageGUID: message.guid,
             chatID: message.chatID,
+            aliases: echoChatIDs,
             at: now
         ) {
             return .reject(.outboundEcho)
@@ -37,6 +44,7 @@ public struct ControlMessageFilter: Sendable {
         if try await ledger.contains(
             text: message.text,
             chatID: message.chatID,
+            aliases: echoChatIDs,
             messageDate: message.createdAt,
             at: now
         ) {

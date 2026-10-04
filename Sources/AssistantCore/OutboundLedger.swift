@@ -68,7 +68,7 @@ public actor OutboundLedger {
         chatID: TransportChatID,
         text: String,
         sentAt: Date = Date(),
-        ttl: TimeInterval = 120
+        ttl: TimeInterval = 600
     ) throws -> OutboundLedgerEntry {
         prune(at: sentAt)
 
@@ -120,26 +120,29 @@ public actor OutboundLedger {
     public func contains(
         messageGUID: String,
         chatID: TransportChatID,
+        aliases: Set<TransportChatID> = [],
         at date: Date = Date()
     ) throws -> Bool {
         prune(at: date)
         return entries.contains {
-            $0.chatID == chatID && $0.transportMessageGUID == messageGUID
+            ($0.chatID == chatID || aliases.contains($0.chatID))
+                && $0.transportMessageGUID == messageGUID
         }
     }
 
     public func contains(
         text: String,
         chatID: TransportChatID,
+        aliases: Set<TransportChatID> = [],
         messageDate: Date,
-        tolerance: TimeInterval = 30,
+        tolerance: TimeInterval = 180,
         at date: Date = Date()
     ) throws -> Bool {
         prune(at: date)
         let hash = Self.contentHash(text)
 
         return entries.contains {
-            $0.chatID == chatID
+            ($0.chatID == chatID || aliases.contains($0.chatID))
                 && $0.normalizedContentHash == hash
                 && abs($0.sentAt.timeIntervalSince(messageDate)) <= tolerance
         }
