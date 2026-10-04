@@ -114,6 +114,40 @@ struct EchoServiceTests {
         #expect(cursor == TransportCursor(rawValue: 103))
     }
 
+    @Test
+    func uncertainSendKeepsHostAliveAndDoesNotReplayCommand() async throws {
+        let cursorStore = CursorStore()
+        let transport = ScriptedTransport(
+            steps: [.messages([
+                message(cursor: 201, text: "/status"),
+                message(cursor: 202, text: "/help"),
+            ])],
+            uncertainFirstSend: true
+        )
+        let service = EchoService(
+            transport: transport,
+            ledger: try OutboundLedger(),
+            cursorStore: cursorStore
+        )
+        var outcomes: [EchoSendOutcome] = []
+        for try await event in service.events(chatID: chatID) {
+            outcomes.append(event.sendOutcome)
+        }
+
+        #expect(outcomes == [.uncertain, .confirmed])
+        #expect(await cursorStore.cursor(for: chatID) == TransportCursor(rawValue: 202))
+        #expect(transport.sentMessages.count == 2)
+
+        let restarted = EchoService(
+            transport: ScriptedTransport(steps: [.messages([message(cursor: 201, text: "/status")])]),
+            ledger: try OutboundLedger(),
+            cursorStore: cursorStore
+        )
+        for try await event in restarted.events(chatID: chatID) {
+            #expect(event.decision == .reject(.replayed))
+        }
+    }
+
     private func message(
         cursor: Int64,
         text: String,
@@ -140,9 +174,11 @@ private final class ScriptedTransport: MessageTransport, @unchecked Sendable {
     private var steps: [Step]
     private var cursors: [TransportCursor?] = []
     private var messages: [OutboundTransportMessage] = []
+    private let uncertainFirstSend: Bool
 
-    init(steps: [Step]) {
+    init(steps: [Step], uncertainFirstSend: Bool = false) {
         self.steps = steps
+        self.uncertainFirstSend = uncertainFirstSend
     }
 
     var requestedCursors: [TransportCursor?] {
@@ -189,7 +225,13 @@ private final class ScriptedTransport: MessageTransport, @unchecked Sendable {
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
     ) async throws -> SendReceipt {
-        lock.withLock { messages.append(message) }
+        let sendNumber = lock.withLock { () -> Int in
+            messages.append(message)
+            return messages.count
+        }
+        if uncertainFirstSend && sendNumber == 1 {
+            throw TransportFailure("Delivery outcome unknown", retrySafe: false)
+        }
         return SendReceipt(
             requestID: message.requestID,
             messageGUID: UUID().uuidString,

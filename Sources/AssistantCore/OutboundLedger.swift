@@ -6,6 +6,7 @@ public struct OutboundLedgerEntry: Codable, Equatable, Sendable {
     public let chatID: TransportChatID
     public let normalizedContentHash: String
     public var transportMessageGUID: String?
+    public var needsRecovery: Bool
     public let sentAt: Date
     public let expiresAt: Date
 
@@ -21,8 +22,27 @@ public struct OutboundLedgerEntry: Codable, Equatable, Sendable {
         self.chatID = chatID
         self.normalizedContentHash = normalizedContentHash
         self.transportMessageGUID = transportMessageGUID
+        self.needsRecovery = transportMessageGUID == nil
         self.sentAt = sentAt
         self.expiresAt = expiresAt
+    }
+    private enum CodingKeys: String, CodingKey {
+        case requestID, chatID, normalizedContentHash, transportMessageGUID
+        case needsRecovery, sentAt, expiresAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requestID = try container.decode(UUID.self, forKey: .requestID)
+        chatID = try container.decode(TransportChatID.self, forKey: .chatID)
+        normalizedContentHash = try container.decode(String.self, forKey: .normalizedContentHash)
+        transportMessageGUID = try container.decodeIfPresent(String.self, forKey: .transportMessageGUID)
+        sentAt = try container.decode(Date.self, forKey: .sentAt)
+        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
+        // Older ledger files had no recovery bit. An entry without a send GUID
+        // may have been delivered, so recover it conservatively once.
+        needsRecovery = try container.decodeIfPresent(Bool.self, forKey: .needsRecovery)
+            ?? (transportMessageGUID == nil)
     }
 }
 
@@ -71,6 +91,24 @@ public actor OutboundLedger {
         }
 
         entries[index].transportMessageGUID = messageGUID
+        entries[index].needsRecovery = false
+        try persist()
+    }
+
+    public func pendingRecoveryChatIDs() -> Set<TransportChatID> {
+        Set(entries.filter(\.needsRecovery).map(\.chatID))
+    }
+
+    public func markRecovered(requestID: UUID) throws {
+        guard let index = entries.firstIndex(where: { $0.requestID == requestID }) else { return }
+        entries[index].needsRecovery = false
+        try persist()
+    }
+
+    public func markRecovered(chatID: TransportChatID) throws {
+        for index in entries.indices where entries[index].chatID == chatID {
+            entries[index].needsRecovery = false
+        }
         try persist()
     }
 

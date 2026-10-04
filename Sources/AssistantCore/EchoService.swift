@@ -1,18 +1,28 @@
 import Foundation
 
+public enum EchoSendOutcome: Equatable, Sendable {
+    case notAttempted
+    case confirmed
+    case notStarted
+    case uncertain
+}
+
 public struct EchoEvent: Equatable, Sendable {
     public let inbound: InboundTransportMessage
     public let decision: InboundDecision
     public let receipt: SendReceipt?
+    public let sendOutcome: EchoSendOutcome
 
     public init(
         inbound: InboundTransportMessage,
         decision: InboundDecision,
-        receipt: SendReceipt?
+        receipt: SendReceipt?,
+        sendOutcome: EchoSendOutcome = .notAttempted
     ) {
         self.inbound = inbound
         self.decision = decision
         self.receipt = receipt
+        self.sendOutcome = sendOutcome
     }
 }
 
@@ -82,12 +92,11 @@ public struct EchoService: Sendable {
                                     continue
                                 }
 
+                                // Checkpoint before invoking the handler: model work or a
+                                // state-changing command can begin inside reply().
+                                try await cursorStore.advance(chatID: chatID, to: message.cursor)
+                                lastCursor = max(lastCursor ?? message.cursor, message.cursor)
                                 guard let replyText = try await reply(message.text) else {
-                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
-                                    try await cursorStore.advance(
-                                        chatID: chatID,
-                                        to: message.cursor
-                                    )
                                     continuation.yield(
                                         EchoEvent(
                                             inbound: message,
@@ -104,28 +113,42 @@ public struct EchoService: Sendable {
                                     chatID: chatID,
                                     text: outbound.text
                                 )
-
                                 do {
                                     let receipt = try await transport.send(outbound, to: chatID)
                                     try await ledger.confirm(
                                         requestID: outbound.requestID,
                                         messageGUID: receipt.messageGUID
                                     )
-                                    lastCursor = max(lastCursor ?? message.cursor, message.cursor)
-                                    try await cursorStore.advance(
-                                        chatID: chatID,
-                                        to: message.cursor
-                                    )
                                     continuation.yield(
                                         EchoEvent(
                                             inbound: message,
                                             decision: .accept,
-                                            receipt: receipt
+                                            receipt: receipt,
+                                            sendOutcome: .confirmed
                                         )
                                     )
                                 } catch let failure as TransportFailure where failure.retrySafe {
                                     try await ledger.cancel(requestID: outbound.requestID)
-                                    throw failure
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: .accept,
+                                            receipt: nil,
+                                            sendOutcome: .notStarted
+                                        )
+                                    )
+                                } catch {
+                                    // The send may already be visible on the phone. The
+                                    // input is checkpointed; keep echo suppression and listen.
+                                    try await ledger.markRecovered(requestID: outbound.requestID)
+                                    continuation.yield(
+                                        EchoEvent(
+                                            inbound: message,
+                                            decision: .accept,
+                                            receipt: nil,
+                                            sendOutcome: .uncertain
+                                        )
+                                    )
                                 }
                             }
 

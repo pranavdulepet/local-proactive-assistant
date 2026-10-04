@@ -207,8 +207,17 @@ struct AssistantCLI {
             ) {
                 switch event.decision {
                 case .accept:
-                    let guid = event.receipt?.messageGUID ?? "unverified"
-                    print("accepted row \(event.inbound.cursor.rawValue); sent \(guid)")
+                    switch event.sendOutcome {
+                    case .confirmed:
+                        let guid = event.receipt?.messageGUID ?? "unverified"
+                        print("accepted row \(event.inbound.cursor.rawValue); sent \(guid)")
+                    case .notStarted:
+                        print("row \(event.inbound.cursor.rawValue): send did not start; text again if needed")
+                    case .uncertain:
+                        print("row \(event.inbound.cursor.rawValue): delivery outcome unknown; not retried")
+                    case .notAttempted:
+                        print("row \(event.inbound.cursor.rawValue): no reply")
+                    }
                 case .reject(let reason):
                     print("ignored row \(event.inbound.cursor.rawValue): \(reason.rawValue)")
                 }
@@ -246,6 +255,15 @@ struct AssistantCLI {
             print("Owner routes: " + selfChats.map { String($0.id.rawValue) }.joined(separator: ", "))
             let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
+            let pendingChats = await ledger.pendingRecoveryChatIDs()
+            for route in selfChats where pendingChats.contains(route.id) {
+                let saved = await cursorStore.cursor(for: route.id) ?? TransportCursor(rawValue: 0)
+                let latest = try await transport.latestChatCursor(in: route.id, after: saved)
+                try await cursorStore.advance(chatID: route.id, to: latest)
+                try await ledger.markRecovered(chatID: route.id)
+                print("Chat \(route.id.rawValue): recovered an earlier unconfirmed send; "
+                    + "skipped through row \(latest.rawValue) without resending. Text again if needed.")
+            }
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
             try await store.recoverInterruptedReminders()
             let phoneSync: PhoneSyncServer?
@@ -255,9 +273,10 @@ struct AssistantCLI {
                 print("Paired phone sync listening on local HTTPS port \(identity.pairing.server.port ?? 8765).")
             } else { phoneSync = nil }
             defer { phoneSync?.stop() }
+            let controlTransport = PollingIMsgTransport(base: transport)
             let sessions: [ControlSession] = selfChats.map { route in
                 let conversation = model == "apple" ? ModelConversationService(
-                    store: store, provider: MacModelProvider(), transport: transport,
+                    store: store, provider: MacModelProvider(), transport: controlTransport,
                     ledger: ledger, chatID: route.id
                 ) : nil
                 let answerQuestion: (@Sendable (String) async -> String)?
@@ -266,7 +285,7 @@ struct AssistantCLI {
                 } else { answerQuestion = nil }
                 let handler = ControlCommandHandler(store: store, answerQuestion: answerQuestion)
                 let service = EchoService(
-                    transport: PollingIMsgTransport(base: transport),
+                    transport: controlTransport,
                     ledger: ledger,
                     cursorStore: cursorStore,
                     reply: { text in try await handler.response(to: text) },
@@ -289,7 +308,7 @@ struct AssistantCLI {
                 contacts: ContactsStoreSource(), store: store,
                 controlChatIDs: Set(selfChats.map(\.id))
             )
-            let reminders = ProactiveReminderService(store: store, transport: transport, ledger: ledger)
+            let reminders = ProactiveReminderService(store: store, transport: controlTransport, ledger: ledger)
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for session in sessions {
@@ -302,13 +321,22 @@ struct AssistantCLI {
                                 chatID: session.chatID, after: resumeCursor
                             ) {
                                 switch event.decision {
-                                case .accept where event.receipt != nil:
-                                    let guid = event.receipt?.messageGUID ?? "unverified"
-                                    print("chat \(session.chatID.rawValue) handled row "
-                                        + "\(event.inbound.cursor.rawValue); submitted \(guid)")
                                 case .accept:
-                                    print("chat \(session.chatID.rawValue) ignored row "
-                                        + "\(event.inbound.cursor.rawValue): not a command")
+                                    switch event.sendOutcome {
+                                    case .confirmed:
+                                        let guid = event.receipt?.messageGUID ?? "unverified"
+                                        print("chat \(session.chatID.rawValue) handled row "
+                                            + "\(event.inbound.cursor.rawValue); submitted \(guid)")
+                                    case .notStarted:
+                                        print("chat \(session.chatID.rawValue) row "
+                                            + "\(event.inbound.cursor.rawValue): send did not start; text again if needed")
+                                    case .uncertain:
+                                        print("chat \(session.chatID.rawValue) row "
+                                            + "\(event.inbound.cursor.rawValue): delivery outcome unknown; not retried")
+                                    case .notAttempted:
+                                        print("chat \(session.chatID.rawValue) ignored row "
+                                            + "\(event.inbound.cursor.rawValue): not a command")
+                                    }
                                 case .reject(let reason):
                                     print("chat \(session.chatID.rawValue) ignored row "
                                         + "\(event.inbound.cursor.rawValue): \(reason.rawValue)")
