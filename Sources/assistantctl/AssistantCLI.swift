@@ -7,6 +7,8 @@ import Foundation
 import IMsgTransport
 import LocalInference
 import MacModelBridge
+import MacPhoneSync
+import PhoneSync
 
 @main
 struct AssistantCLI {
@@ -31,6 +33,21 @@ struct AssistantCLI {
         arguments.removeFirst()
 
         switch command {
+        case "pair-phone":
+            let host = takeOption("--host", from: &arguments) ?? ProcessInfo.processInfo.hostName
+            let localHost = host.contains(".") ? host : host + ".local"
+            let identity = try await MacPhoneIdentity.create(host: localHost)
+            let path = try stateURL("phone-pairing.png")
+            try await identity.showQR(at: path)
+            print("Scan the QR code with your iPhone Camera to pair with \(identity.pairing.name).")
+            print("Verify code \(identity.pairing.verificationCode) on the phone. Keep the code private.")
+            print("Then start serve as usual. Phone summaries sync over your local network; no AI server is involved.")
+
+        case "unpair-phone":
+            try PairingKeychain.remove(account: "mac")
+            try? FileManager.default.removeItem(at: try stateURL("phone-pairing.png"))
+            print("Phone pairing revoked. Existing indexed evidence remains until removed; no further uploads are accepted.")
+
         case "model-status":
             let provider = MacModelProvider()
             let state = await provider.availability()
@@ -147,6 +164,13 @@ struct AssistantCLI {
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
             try await store.recoverInterruptedReminders()
+            let phoneSync: PhoneSyncServer?
+            if let identity = try MacPhoneIdentity.load() {
+                phoneSync = try PhoneSyncServer(identity: identity, store: store)
+                phoneSync?.start()
+                print("Paired phone sync listening on local HTTPS port \(identity.pairing.server.port ?? 8765).")
+            } else { phoneSync = nil }
+            defer { phoneSync?.stop() }
             let conversation = model == "apple" ? ModelConversationService(
                 store: store, provider: MacModelProvider(), transport: transport, ledger: ledger, chatID: chat
             ) : nil
@@ -450,6 +474,8 @@ struct AssistantCLI {
           assistantctl chats [--imsg <path>]
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
           assistantctl serve --control-chat-id <id> [--model apple] [--imsg <path>]
+          assistantctl pair-phone [--host <local-hostname-or-LAN-IP>]
+          assistantctl unpair-phone
           assistantctl model-status
           assistantctl model-eval
           assistantctl ask --question <question> [--person <exact person>]

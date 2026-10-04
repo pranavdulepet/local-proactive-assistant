@@ -1,127 +1,91 @@
-import AppleModelAdapter
 import Foundation
-import LocalInference
 import Observation
 import PhoneContext
+import PhoneSync
 
 @MainActor
 @Observable
 final class AssistantViewModel {
-    enum ContextChoice: String, CaseIterable, Identifiable {
-        case demo = "Demo", phone = "This phone", mac = "Mac snapshot"
-        var id: String { rawValue }
-    }
-
-    var contextChoice: ContextChoice = .demo
-    var question = ContextDocument.demo().question
-    var contactName = ""
-    var includeCalendar = false
-    var includeContacts = false
-    var includeSleep = false
-    var modelDetail = "Checking the on-device model…"
-    var answer = ""
-    var notice = ""
+    static let shared = AssistantViewModel()
+    var sleepEnabled = UserDefaults.standard.bool(forKey: "phone.sleepEnabled")
     var busy = false
-    var imported: EvidenceRequest?
-    var evidence: EvidenceRequest?
-    @ObservationIgnored private let provider = AppleSystemModelProvider()
+    var notice = ""
+    var pendingPairing: PhonePairing?
     @ObservationIgnored private let phone = PhoneContextSource()
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var observing = false
+    @ObservationIgnored private var lastCollected: Date?
 
-    func checkModel() async {
-        let state = await provider.availability()
-        modelDetail = state.detail
+    func activate() async {
+        if sleepEnabled, PhoneUploadClient.shared.pairing != nil {
+            await observeSleep()
+            await sync()
+        } else { await PhoneUploadClient.shared.retry() }
     }
 
-    func ask() {
+    func receivePairing(_ url: URL) {
+        do { pendingPairing = try PhonePairing.decode(url) }
+        catch { notice = "Scan the pairing QR code displayed by your own Mac." }
+    }
+
+    func confirmPairing() async {
+        guard let pendingPairing else { return }
+        do {
+            try await PhoneUploadClient.shared.pair(pendingPairing)
+            self.pendingPairing = nil
+            lastCollected = nil
+            await activate()
+            if !sleepEnabled { try await PhoneUploadClient.shared.enqueue(sleepEnabled: false, sleep: []) }
+        } catch { notice = "Could not save pairing. Scan the Mac code again." }
+    }
+
+    func enableSleep() async {
         guard !busy else { return }
-        busy = true
-        answer = ""
-        notice = ""
-        task = Task {
-            defer { busy = false; task = nil }
-            do {
-                let request: EvidenceRequest
-                switch contextChoice {
-                case .demo:
-                    let demo = ContextDocument.demo()
-                    request = EvidenceRequest(question: question, createdAt: demo.createdAt, records: demo.records, coverage: demo.coverage)
-                case .phone:
-                    request = try await phone.request(question: question, contactName: contactName, includeCalendar: includeCalendar, includeContacts: includeContacts, includeSleep: includeSleep)
-                case .mac:
-                    guard let imported else { throw LocalModelFailure("Import a Mac context document first.") }
-                    request = EvidenceRequest(question: question, createdAt: imported.createdAt, records: imported.records,
-                        coverage: imported.coverage + ["Explicit Mac snapshot; changes since export are not included."])
-                }
-                try request.validate()
-                evidence = request
-                let result = try await AnswerService(provider: provider).answer(request)
-                try Task.checkCancellation()
-                answer = result.text
-                await checkModel()
-            } catch is CancellationError {
-                notice = "Answer cancelled."
-            } catch {
-                notice = "Could not assemble local context. Check the question length, selected permissions, and imported document."
-            }
-        }
-    }
-
-    func cancel() { task?.cancel() }
-
-    func allowCalendar() async {
-        do {
-            includeCalendar = try await phone.requestCalendarAccess()
-            notice = includeCalendar ? "Calendar access enabled for local questions." : "Calendar access was not granted."
-        } catch { notice = "Calendar access is unavailable." }
-    }
-
-    func allowContacts() async {
-        do {
-            includeContacts = try await phone.requestContactsAccess()
-            notice = includeContacts ? "Contacts access enabled. Select an exact person name." : "Contacts access was not granted."
-        } catch { notice = "Contacts access is unavailable." }
-    }
-
-    func allowSleep() async {
         do {
             try await phone.requestSleepAccess()
-            includeSleep = true
-            notice = "Sleep read request finished. Only available samples contribute to a local summary; read denial is not disclosed by HealthKit."
-        } catch { notice = "Health access is unavailable. Calendar, Contacts and imported context still work." }
+            sleepEnabled = true
+            UserDefaults.standard.set(true, forKey: "phone.sleepEnabled")
+            await observeSleep()
+            await sync(force: true)
+        } catch { notice = "Sleep access is unavailable. You can still chat in Messages." }
     }
 
-    func importContext(from url: URL) {
-        guard !busy else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    func disableSleep() async {
+        sleepEnabled = false
+        UserDefaults.standard.set(false, forKey: "phone.sleepEnabled")
+        await phone.stopSleepUpdates()
+        observing = false; lastCollected = nil
+        do { try await PhoneUploadClient.shared.enqueue(sleepEnabled: false, sleep: []) }
+        catch { notice = "Sleep sharing stopped. Connect to the Mac to update its status." }
+    }
+
+    func disconnect() async {
+        await phone.stopSleepUpdates()
+        observing = false
+        do { try await PhoneUploadClient.shared.disconnect() }
+        catch { notice = "Could not remove pairing." }
+    }
+
+    func sync(force: Bool = false) async {
+        guard !busy, PhoneUploadClient.shared.pairing != nil else { return }
+        if !force, let lastCollected, Date().timeIntervalSince(lastCollected) < 900 {
+            await PhoneUploadClient.shared.retry(); return
+        }
+        busy = true
+        defer { busy = false }
         do {
-            let file = try FileHandle(forReadingFrom: url)
-            defer { try? file.close() }
-            let data = try file.read(upToCount: ContextDocument.maximumBytes + 1) ?? Data()
-            let context = try ContextDocument.decode(data)
-            // Reserve one coverage line for the snapshot warning.
-            guard context.coverage.count < 8 else { throw LocalModelFailure("No room for snapshot coverage.") }
-            imported = context
-            evidence = nil
-            contextChoice = .mac
-            question = context.question
-            answer = ""
-            notice = "Imported \(context.records.count) records. Context stays in this app's memory and is cleared when the app exits."
-        } catch { notice = "Could not import this bounded context document. Export a fresh .lpa-context file from the Mac." }
+            let items = sleepEnabled ? try await phone.sleepDigests() : []
+            try await PhoneUploadClient.shared.enqueue(sleepEnabled: sleepEnabled, sleep: items)
+            lastCollected = Date()
+            if sleepEnabled, items.allSatisfy({ $0.recordedMinutes == nil }) {
+                notice = "No readable sleep samples. This can mean missing data or denied read access; it does not mean zero sleep."
+            }
+        } catch { notice = "Could not collect phone context. Existing updates remain queued." }
     }
 
-    func clearContext() {
-        guard !busy else { return }
-        imported = nil
-        evidence = nil
-        answer = ""
-        contactName = ""
-        includeCalendar = false
-        includeContacts = false
-        includeSleep = false
-        contextChoice = .demo
-        question = ContextDocument.demo().question
-        notice = "In-memory context cleared. System permissions can be managed in Settings."
+    private func observeSleep() async {
+        guard !observing else { return }
+        observing = true
+        let background = await phone.startSleepUpdates { [weak self] in await self?.sync(force: true) }
+        notice = background ? "Sleep changes can queue updates in the background." : "Sleep syncs when you open this app. Background delivery is not available with this installation."
     }
 }
