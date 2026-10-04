@@ -106,7 +106,7 @@ struct AssistantCLI {
         case "pair-chat":
             let health = await transport.probe()
             guard health.ready else { throw CLIError("Messages is unavailable: \(health.detail)") }
-            let code = "LOCAL-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)
+            let code = "LOCAL-" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12))
             let started = Date()
             print("On your iPhone, send \(code) to your private iMessage self-chat.")
             print("Waiting up to two minutes for that exact message...")
@@ -136,7 +136,7 @@ struct AssistantCLI {
             )
             try String(matchedChat.id.rawValue).write(to: configURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-            print("Self-chat paired. Start with ./scripts/start.sh.")
+            print("Self-chat paired. Start with bash scripts/start.sh.")
 
         case "echo":
             guard let rawChatID = takeOption("--chat-id", from: &arguments),
@@ -188,7 +188,7 @@ struct AssistantCLI {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let rawChatID = takeOption("--control-chat-id", from: &arguments) ?? configuredChatID,
                   let chatID = Int64(rawChatID), chatID > 0 else {
-                throw CLIError("No self-chat paired. Run ./scripts/start.sh or pass --control-chat-id <id>.")
+                throw CLIError("No self-chat paired. Run bash scripts/start.sh or pass --control-chat-id <id>.")
             }
             let hostLock = try HostLock(fileURL: try stateURL("host.lock"))
             defer { withExtendedLifetime(hostLock) {} }
