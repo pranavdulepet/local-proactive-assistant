@@ -15,6 +15,13 @@ public protocol LocalModelProvider: Sendable {
     var modelID: String { get }
     func availability() async -> ModelAvailability
     func answer(_ request: EvidenceRequest) async throws -> GroundedAnswer
+    func chat(_ request: ChatRequest) async throws -> ChatReply
+}
+
+public extension LocalModelProvider {
+    func chat(_ request: ChatRequest) async throws -> ChatReply {
+        throw LocalModelFailure("This local model does not support conversation.")
+    }
 }
 
 public struct LocalModelFailure: Error, CustomStringConvertible, Sendable {
@@ -120,5 +127,50 @@ public enum EvidenceText {
             count += next
         }
         return result
+    }
+}
+
+
+public struct ChatTurn: Codable, Equatable, Sendable {
+    public enum Role: String, Codable, Sendable { case user, assistant }
+    public let role: Role
+    public let text: String
+    public init(role: Role, text: String) { self.role = role; self.text = text }
+}
+
+/// A bounded, tool-free local conversation. Source records remain quoted data.
+public struct ChatRequest: Codable, Equatable, Sendable {
+    public let message: String
+    public let history: [ChatTurn]
+    public let records: [EvidenceRecord]
+    public let coverage: [String]
+
+    public init(message: String, history: [ChatTurn], records: [EvidenceRecord] = [], coverage: [String] = []) {
+        self.message = message
+        self.history = history
+        self.records = records
+        self.coverage = coverage
+    }
+
+    public func validate() throws {
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              message.utf8.count <= 512,
+              history.count <= 8,
+              history.allSatisfy({ !$0.text.isEmpty && $0.text.utf8.count <= 512 }),
+              records.count <= 8,
+              records.allSatisfy({ $0.text.utf8.count <= 768 && $0.locator.utf8.count <= 256 }),
+              coverage.count <= 8,
+              coverage.allSatisfy({ $0.utf8.count <= 512 }) else {
+            throw LocalModelFailure("Conversation exceeds local context limits.")
+        }
+    }
+}
+
+public struct ChatReply: Codable, Equatable, Sendable {
+    public let text: String
+    public init(text: String) { self.text = text }
+    public func validate() throws {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              text.utf8.count <= 2_048 else { throw LocalModelFailure("Invalid local conversation reply.") }
     }
 }
