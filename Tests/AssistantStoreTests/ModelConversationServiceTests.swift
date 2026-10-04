@@ -18,7 +18,7 @@ struct ModelConversationServiceTests {
             transport: transport, ledger: try OutboundLedger(),
             chatID: chat, history: history
         )
-        #expect(await service.begin(question: "hello") == nil)
+        #expect(try await service.begin(question: "hello") == nil)
         let sent = await transport.waitForSend()
         #expect(sent.1 == chat)
         #expect(sent.0.text == "Hello from the local model.")
@@ -39,7 +39,7 @@ struct ModelConversationServiceTests {
             transport: transport, ledger: try OutboundLedger(),
             chatID: TransportChatID(rawValue: 954), history: history
         )
-        #expect(await service.begin(question: "hello") == nil)
+        #expect(try await service.begin(question: "hello") == nil)
         _ = await transport.waitForSend()
         for _ in 0..<50 {
             if await history.lastUserMessage() == "hello" { break }
@@ -56,10 +56,10 @@ struct ModelConversationServiceTests {
         let ledger = try OutboundLedger()
         let chat = TransportChatID(rawValue: 955)
         let service = ModelConversationService(store: store, provider: provider, transport: transport, ledger: ledger, chatID: chat)
-        #expect(await service.begin(question: "What is the project deadline?") == nil)
+        #expect(try await service.begin(question: "What is the project deadline?") == nil)
         await provider.waitUntilStarted()
         let secondRoute = TransportChatID(rawValue: 954)
-        #expect(await service.begin(question: "another question", to: secondRoute) == nil)
+        #expect(try await service.begin(question: "another question", to: secondRoute) == nil)
         let handler = ControlCommandHandler(store: store)
         #expect(try await handler.response(to: "/pause")?.contains("paused") == true)
         #expect(try await store.proactivityStatus().paused)
