@@ -20,7 +20,7 @@ struct ConversationInboxTests {
         try await restarted.mark("954:guid-1", as: .sending)
 
         let uncertain = try ConversationInbox(fileURL: file)
-        #expect(try await uncertain.claim() == nil)
+        #expect(try await uncertain.claim()?.id == nil)
         #expect(await uncertain.counts().uncertain == 1)
         #expect(try await uncertain.enqueue(id: "954:guid-1", question: "hello", chatID: chat) == .duplicate)
         #expect(try await uncertain.enqueue(id: "955:guid-2", question: "next", chatID: .init(rawValue: 955)) == .accepted)
