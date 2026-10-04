@@ -27,7 +27,7 @@ let package = Package(
         .target(name: "AppleModelAdapter", dependencies: ["LocalInference"]),
         .target(name: "PhoneSync"),
         .target(name: "MacPhoneSync", dependencies: ["PhoneSync", "AssistantStore", "ProcessSupport"]),
-        .target(name: "PhoneContext", dependencies: ["AssistantCore", "LocalInference", "ContactsAdapter", "EventKitAdapter", "PhoneSync"]),
+        .target(name: "PhoneContext", dependencies: ["AssistantCore", "LocalInference", "AppleModelAdapter", "ContactsAdapter", "EventKitAdapter", "PhoneSync"]),
         .executableTarget(name: "assistant-model-worker", dependencies: ["AppleModelAdapter", "LocalInference"]),
         .target(
             name: "AssistantStore",

@@ -11,9 +11,45 @@ final class AssistantViewModel {
     var busy = false
     var notice = ""
     var pendingPairing: PhonePairing?
+    var phoneQuestion = ""
+    var phoneContactName = ""
+    var phoneAnswer = ""
+    var phoneModelDetail = ""
+    var phoneBusy = false
+    @ObservationIgnored private let phoneAssistant = PhoneLocalAssistant()
     @ObservationIgnored private let phone = PhoneContextSource()
     @ObservationIgnored private var observing = false
     @ObservationIgnored private var lastCollected: Date?
+
+    func checkPhoneModel() async {
+        let state = await phoneAssistant.availability()
+        phoneModelDetail = state.detail
+    }
+
+    func askOnPhone() async {
+        guard !phoneBusy else { return }
+        phoneBusy = true
+        defer { phoneBusy = false }
+        do {
+            phoneAnswer = try await phoneAssistant.answer(phoneQuestion, contactName: phoneContactName)
+        } catch {
+            phoneAnswer = "The on-phone model could not answer. Check Apple Intelligence and phone-source permissions."
+        }
+    }
+
+    func enablePhoneCalendar() async {
+        do {
+            let granted = try await phone.requestCalendarAccess()
+            notice = granted ? "Phone Calendar access enabled." : "Phone Calendar access is unavailable."
+        } catch { notice = "Phone Calendar access is unavailable." }
+    }
+
+    func enablePhoneContacts() async {
+        do {
+            let granted = try await phone.requestContactsAccess()
+            notice = granted ? "Phone Contacts access enabled." : "Phone Contacts access is unavailable."
+        } catch { notice = "Phone Contacts access is unavailable." }
+    }
 
     func activate() async {
         if sleepEnabled, PhoneUploadClient.shared.pairing != nil {

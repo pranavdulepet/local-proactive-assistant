@@ -23,6 +23,10 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Read your upcoming calendar events to answer questions on this iPhone using its on-device model.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Read a contact you ask about to answer questions on this iPhone using its on-device model.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Read recorded sleep and share derived totals with your paired Mac. Raw Health samples stay on this phone.</string>
 	<key>CFBundleURLTypes</key>
