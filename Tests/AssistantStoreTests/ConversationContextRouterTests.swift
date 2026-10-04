@@ -4,7 +4,7 @@ import Testing
 struct ConversationContextRouterTests {
     @Test func ordinaryConversationKeepsRecentChatWithoutScanningSources() {
         for prompt in [
-            "Hello!", "How are you doing?", "Tell me a joke.",
+            "Hello!", "How are you doing?", "Tell me a joke.", "Can you tell me a joke?",
             "What did I just say?", "Repeat your last answer.",
             "Can you help me think through an idea?"
         ] {
