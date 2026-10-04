@@ -215,6 +215,24 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         }
     }
 
+    /// Advance past the current physical scan head for a chat after an uncertain
+    /// legacy send. This never dispatches a message.
+    public func latestChatCursor(
+        in chatID: TransportChatID,
+        after saved: TransportCursor
+    ) async throws -> TransportCursor {
+        var cursor = saved
+        while true {
+            let page = try await chatPage(in: chatID, after: cursor)
+            guard page.nextCursor >= cursor,
+                  !page.hasMore || page.nextCursor > cursor else {
+                throw TransportFailure("imsg chat history did not advance during recovery.")
+            }
+            cursor = page.nextCursor
+            if !page.hasMore { return cursor }
+        }
+    }
+
     private func latestCursor(in chatID: TransportChatID) async throws -> TransportCursor {
         let result = try await rpc(
             method: "messages.history",
