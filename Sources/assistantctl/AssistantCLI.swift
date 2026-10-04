@@ -262,12 +262,11 @@ struct AssistantCLI {
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             let pendingChats = await ledger.pendingRecoveryChatIDs()
             for route in selfChats where pendingChats.contains(route.id) {
-                let saved = await cursorStore.cursor(for: route.id) ?? TransportCursor(rawValue: 0)
-                let latest = try await transport.latestChatCursor(in: route.id, after: saved)
-                try await cursorStore.advance(chatID: route.id, to: latest)
+                // An uncertain outgoing send may have produced an echo. Keep the
+                // ledger hash for suppression, but never skip unseen incoming rows.
                 try await ledger.markRecovered(chatID: route.id)
-                print("Chat \(route.id.rawValue): recovered an earlier unconfirmed send; "
-                    + "skipped through row \(latest.rawValue) without resending. Text again if needed.")
+                print("Chat \(route.id.rawValue): earlier send outcome unknown; "
+                    + "catching up from the saved cursor without resending.")
             }
             let databaseURL = try stateURL("assistant.sqlite")
             let store = try ObservationStore(fileURL: databaseURL)
