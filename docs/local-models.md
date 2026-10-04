@@ -21,7 +21,7 @@ chat identity it displays. It remembers that chat on this Mac for later runs. At
 also looks up your own phone numbers and email addresses on the Contacts Me card, then monitors
 matching direct iMessage routes. It replies through the route that received each command. If
 Contacts has no Me card or access is unavailable, add each other self address once with
-\`.build/release/assistantctl add-self-handle --address <your phone or email>\` and restart.
+`.build/release/assistantctl add-self-handle --address <your phone or email>\` and restart.
 The host prints the active route IDs so missing aliases are visible. No chat ID or model
 weights need to be entered. If Homebrew is absent, install it first. macOS requires you to grant
 Full Disk Access to your terminal and, on the first reply, Automation permission for Messages;
