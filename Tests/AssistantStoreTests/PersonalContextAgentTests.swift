@@ -4,6 +4,20 @@ import Testing
 @testable import AssistantStore
 
 struct PersonalContextAgentTests {
+    @Test func combinedQuestionMayReadThreeSourcesInItsInitialPlan() async throws {
+        let calls = [ContextToolCall(tool: .searchIndex, query: "calendar tomorrow"),
+            ContextToolCall(tool: .mailInbox), ContextToolCall(tool: .reminders)]
+        let source = AgentSourceFixture(results: Dictionary(uniqueKeysWithValues:
+            calls.map { ($0, contextRecord(source: $0.tool.rawValue)) }))
+        let provider = AgentModelFixture(plans: [ContextPlan(calls: calls)])
+        _ = try await PersonalContextAgent(provider: provider, source: source,
+            availableTools: [.searchIndex, .mailInbox, .reminders])
+            .reply(message: "Help plan tomorrow using my events, inbox and unfinished tasks", history: [])
+        #expect(await source.captured() == calls)
+        #expect(await provider.planRequests().count == 1)
+        #expect(await provider.chatRequests().first?.records.count == 3)
+    }
+
     @Test func fullSourceSamplesRetainBothCalendarAndMailForCombinedQuestions() async throws {
         let calendar = ContextToolCall(tool: .searchIndex, query: "calendar tomorrow")
         let mail = ContextToolCall(tool: .mailInbox)

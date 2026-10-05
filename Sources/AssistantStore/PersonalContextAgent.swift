@@ -47,8 +47,9 @@ public struct PersonalContextAgent: Sendable {
 
         for pass in 0..<2 {
             try Task.checkCancellation()
-            // Reserve one read for refinement rather than spending the whole budget immediately.
-            let remaining = pass == 0 ? 2 : 3 - executed.count
+            // The planner can use all three reads for a combined-source question,
+            // or leave reads available for discovery and refinement.
+            let remaining = 3 - executed.count
             guard remaining > 0 else { break }
             let request = ContextPlanRequest(
                 message: message, history: history, records: records,
