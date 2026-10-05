@@ -57,7 +57,7 @@ struct ModelConversationServiceTests {
         #expect(second.0.text == "Hello from the local model.")
         let requests = await provider.captured()
         #expect(requests.count == 2)
-        #expect(requests.allSatisfy { $0.records.isEmpty && $0.coverage.isEmpty })
+        #expect(requests.allSatisfy { $0.records.isEmpty && $0.coverage.count == 1 && $0.coverage[0].contains("Host read capabilities") })
         #expect(requests[1].history.contains { $0.text == "Hello!" })
     }
 
@@ -76,6 +76,38 @@ struct ModelConversationServiceTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(await history.recent().map(\.text) == ["hello", "Hello from the local model."])
+    }
+
+    @Test func mailRequestsRefreshBeforeCallingTheModel() async throws {
+        let provider = TestChatModel()
+        let transport = AnswerTransport()
+        let source = LiveMailFixture()
+        let service = ModelConversationService(
+            store: try ObservationStore(), provider: provider,
+            transport: transport, ledger: try OutboundLedger(),
+            chatID: TransportChatID(rawValue: 954), mail: source
+        )
+        #expect(try await service.begin(question: "Check my emails") == nil)
+        _ = await transport.waitForSend()
+        let requests = await provider.captured()
+        #expect(requests.count == 1)
+        #expect(requests[0].records.first?.source == "mail")
+        #expect(requests[0].records.first?.text.contains("Project review") == true)
+        #expect(requests[0].coverage.contains { $0.contains("Apple Mail Inbox on email requests") })
+    }
+
+    @Test func mailPermissionFailureIsReportedWithoutInventingAnAnswer() async throws {
+        let provider = TestChatModel()
+        let transport = AnswerTransport()
+        let service = ModelConversationService(
+            store: try ObservationStore(), provider: provider,
+            transport: transport, ledger: try OutboundLedger(),
+            chatID: TransportChatID(rawValue: 954), mail: DeniedMailFixture()
+        )
+        #expect(try await service.begin(question: "Read my inbox") == nil)
+        let sent = await transport.waitForSend()
+        #expect(sent.0.text == "Allow Automation > Mail and try again.")
+        #expect(await provider.captured().isEmpty)
     }
 
     @Test func slowInferenceKeepsPauseAvailableAndNeverChoosesARecipient() async throws {
@@ -102,6 +134,17 @@ struct ModelConversationServiceTests {
         #expect(second.1 == secondRoute)
         #expect(second.0.text == "Second answer")
     }
+}
+
+private struct LiveMailFixture: MailSource {
+    func inboxSnapshot() -> MailSnapshot {
+        let record = MailMessageRecord(externalID: "live", sender: "Maya", subject: "Project review", receivedAt: Date(), unread: true, body: "Review at five.")
+        return MailSnapshot(messages: [record], totalInbox: 1, scanned: 1)
+    }
+}
+
+private struct DeniedMailFixture: MailSource {
+    func inboxSnapshot() throws -> MailSnapshot { throw MailSourceFailure("Allow Automation > Mail and try again.") }
 }
 
 private actor WaitingModel: LocalModelProvider {

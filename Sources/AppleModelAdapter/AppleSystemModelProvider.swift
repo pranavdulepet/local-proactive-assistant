@@ -94,6 +94,10 @@ public actor AppleSystemModelProvider: LocalModelProvider {
                 continuity, not proof about outside facts. If personal evidence is missing,
                 say what you cannot determine from the indexed sources. For ordinary chat or
                 general questions, respond normally without pretending to have searched.
+                Read source capabilities and access status from coverage. The host can supply
+                personal information even though you have no action tools; local inference
+                does not itself prevent reading email. Missing records do not prove a source
+                is unsupported. Use plain text without Markdown bold or tables in Messages.
                 Never diagnose illness.
                 """)
             let encoder = JSONEncoder()

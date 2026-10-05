@@ -76,10 +76,12 @@ public struct InboundTransportMessage: Codable, Equatable, Sendable {
 public struct OutboundTransportMessage: Equatable, Sendable {
     public let requestID: UUID
     public let text: String
+    public let isProgress: Bool
 
-    public init(requestID: UUID = UUID(), text: String) {
+    public init(requestID: UUID = UUID(), text: String, isProgress: Bool = false) {
         self.requestID = requestID
         self.text = text
+        self.isProgress = isProgress
     }
 }
 
@@ -137,4 +139,10 @@ public protocol MessageTransport: Sendable {
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
     ) async throws -> SendReceipt
+    /// Best effort; true means requested, not proof that the recipient rendered it.
+    func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool
+}
+
+public extension MessageTransport {
+    func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool { false }
 }

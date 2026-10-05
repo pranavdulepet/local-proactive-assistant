@@ -24,12 +24,20 @@ struct ConversationContextRouter {
         Set(text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
     }
 
+    static func requestsMail(_ text: String) -> Bool {
+        let words = tokens(text)
+        if !words.isDisjoint(with: ["mail", "emails", "inbox", "gmail", "outlook"]) { return true }
+        // An email address lookup belongs to Contacts; inbox requests belong to Mail.
+        return words.contains("email") && words.isDisjoint(with: ["address", "contact", "contacts"]) &&
+            !words.isDisjoint(with: ["my", "our", "check", "read", "unread", "new", "latest", "recent", "received", "from", "about", "summarize", "search", "find", "reply"])
+    }
+
     private static func needsEvidence(_ words: Set<String>, isQuestion: Bool) -> Bool {
         let sources: Set<String> = [
             "calendar", "schedule", "agenda", "appointment", "appointments", "meeting",
             "meetings", "event", "events", "availability", "plans",
             "message", "messages", "imessage", "sms", "text", "texts", "texted",
-            "contact", "contacts", "phone", "number", "email", "address",
+            "contact", "contacts", "phone", "number", "email", "emails", "mail", "inbox", "gmail", "outlook", "address",
             "sleep", "slept", "health", "steps",
             "commitment", "commitments", "promise", "promised", "deadline", "forgetting"
         ]
@@ -66,7 +74,7 @@ struct ConversationContextRouter {
     private static func isFollowUp(_ text: String) -> Bool {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         return ["and ", "also ", "what about", "how about", "tell me more",
-                "when is it", "who is that", "then ", "what else"].contains {
+                "when is it", "who is that", "then ", "what else", "summarize it", "summarize that"].contains {
             lower.hasPrefix($0)
         }
     }

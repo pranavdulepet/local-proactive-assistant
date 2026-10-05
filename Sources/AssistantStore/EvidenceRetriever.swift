@@ -15,7 +15,8 @@ public struct EvidenceRetriever: Sendable {
             "today", "tomorrow", "yesterday", "week", "day", "last", "next",
             "message", "messages", "imessage", "sms", "text", "texts", "texted",
             "said", "say", "sent", "send", "told", "replied", "discussed", "decided",
-            "agreed", "contact", "contacts", "phone", "number", "email", "address"
+            "agreed", "contact", "contacts", "phone", "number", "email", "emails", "mail", "inbox", "address",
+            "check", "summarize", "summary", "show", "please", "recent", "latest", "unread", "read", "new", "look", "find", "search", "get", "retrieve"
         ]
         return Array(question.split { !$0.isLetter && !$0.isNumber }
             .map { $0.lowercased() }.filter { !stopWords.contains($0) }.suffix(4))
@@ -46,6 +47,21 @@ public struct EvidenceRetriever: Sendable {
                    try await store.current(source: .messages, externalID: evidence.observation.externalID)?.id == evidence.observation.id {
                     observations.append(evidence.observation)
                 }
+            }
+        } else if ConversationContextRouter.requestsMail(question) {
+            let terms = Self.searchTerms(question)
+            if terms.isEmpty || words.contains("unread") {
+                observations = try await store.currentObservations(source: .mail, trust: .unknownExternal, limit: 100, newestFirst: true)
+                if words.contains("unread") {
+                    observations = observations.filter { $0.text.split(separator: "\n", omittingEmptySubsequences: false).dropFirst(2).first == "Unread: yes" }
+                }
+                if !terms.isEmpty {
+                    observations = observations.filter { item in
+                        terms.allSatisfy { item.text.localizedCaseInsensitiveContains($0) }
+                    }
+                }
+            } else {
+                observations = try await Self.search(store: store, terms: terms, sources: [.mail])
             }
         } else if !words.isDisjoint(with: ["sleep", "slept"]) {
             observations = try await store.currentObservations(source: .health, trust: .structuredSource, limit: 2)

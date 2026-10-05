@@ -286,7 +286,9 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
                 "chat_id": chatID.rawValue,
                 "text": message.text,
                 "transport": "applescript",
-            ]
+            ],
+            // A status hint must not hold the final answer behind eight-second echo verification.
+            timeout: message.isProgress ? 2 : 60
         )
 
         guard result["ok"] as? Bool == true else {
@@ -301,9 +303,22 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         )
     }
 
+    public func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool {
+        do {
+            let status = try await rpc(method: "status", params: [:], timeout: 2)
+            let bridge = status["bridge"] as? [String: Any]
+            // Never launch/inject a bridge or use private fallback on a stock Mac.
+            guard bridge?["ready"] as? Bool == true,
+                  (status["methods"] as? [String])?.contains("typing") == true else { return false }
+            let result = try await rpc(method: "typing", params: ["chat_id": chatID.rawValue, "typing": typing], timeout: 2)
+            return result["ok"] as? Bool == true
+        } catch { return false }
+    }
+
     private func rpc(
         method: String,
-        params: [String: Any]
+        params: [String: Any],
+        timeout: TimeInterval = 60
     ) async throws -> [String: Any] {
         let requestID = UUID().uuidString
         let request: [String: Any] = [
@@ -318,7 +333,8 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         let output = try await ProcessRunner.run(
             executable: executable,
             arguments: ["rpc"],
-            standardInput: input
+            standardInput: input,
+            timeout: timeout
         )
 
         guard let line = output.split(separator: 0x0A).first else {
@@ -497,5 +513,9 @@ public actor PollingIMsgTransport: MessageTransport {
         }
         sendTail = Task { _ = try? await operation.value }
         return try await operation.value
+    }
+
+    public func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool {
+        await base.setTyping(typing, to: chatID)
     }
 }

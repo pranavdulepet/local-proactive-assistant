@@ -4,6 +4,55 @@ import Testing
 @testable import IMsgTransport
 
 struct IMsgTransportTests {
+    @Test func typingNeverActivatesAnUnavailableBridge() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake-imsg")
+        let log = directory.appendingPathComponent("requests")
+        let script = """
+        #!/bin/sh
+        IFS= read -r request
+        printf '%s\\n' "$request" >> "\(log.path)"
+        printf '%s\\n' '{"result":{"bridge":{"ready":false},"methods":["typing"]}}'
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        #expect(!(await IMsgTransport(executable: executable.path).setTyping(true, to: TransportChatID(rawValue: 954))))
+        let requests = try String(contentsOf: log, encoding: .utf8)
+        #expect(requests.contains("\"method\":\"status\""))
+        #expect(!requests.contains("\"method\":\"typing\""))
+        #expect(!requests.contains("launch"))
+    }
+
+    @Test func typingUsesOnlyTheVerifiedChatWhenABridgeIsReady() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake-imsg")
+        let log = directory.appendingPathComponent("requests")
+        let script = """
+        #!/bin/sh
+        IFS= read -r request
+        printf '%s\\n' "$request" >> "\(log.path)"
+        printf '%s\\n' '{"result":{"ok":true,"bridge":{"ready":true},"methods":["typing"]}}'
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let transport = IMsgTransport(executable: executable.path)
+        #expect(await transport.setTyping(true, to: TransportChatID(rawValue: 954)))
+        #expect(await transport.setTyping(false, to: TransportChatID(rawValue: 954)))
+        let requests = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+        let typing = try requests.compactMap { line -> [String: Any]? in
+            let value = try JSONSerialization.jsonObject(with: Data(line.utf8)) as! [String: Any]
+            return value["method"] as? String == "typing" ? value["params"] as? [String: Any] : nil
+        }
+        #expect(typing.count == 2)
+        #expect(typing.allSatisfy { ($0["chat_id"] as? NSNumber)?.int64Value == 954 && $0["to"] == nil })
+        #expect(typing[0]["typing"] as? Bool == true)
+        #expect(typing[1]["typing"] as? Bool == false)
+    }
+
     @Test
     func boundsHungRequestsWithoutMarkingSendSafeToRetry() async throws {
         do {

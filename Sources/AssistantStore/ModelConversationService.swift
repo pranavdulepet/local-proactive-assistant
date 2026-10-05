@@ -12,13 +12,16 @@ public actor ModelConversationService {
     private let history: ConversationHistory
     private var active: Task<Void, Never>?
     private let inbox: ConversationInbox
+    private let mail: (any MailSource)?
+    private let progressDelay: Duration
     private var stopping = false
 
     public init(
         store: ObservationStore, provider: any LocalModelProvider,
         transport: any MessageTransport, ledger: OutboundLedger,
         chatID: TransportChatID, history: ConversationHistory? = nil,
-        inbox: ConversationInbox? = nil
+        inbox: ConversationInbox? = nil, mail: (any MailSource)? = nil,
+        progressDelay: Duration = .seconds(2)
     ) {
         self.store = store
         self.provider = provider
@@ -27,9 +30,11 @@ public actor ModelConversationService {
         self.defaultChatID = chatID
         self.history = history ?? ConversationHistory()
         self.inbox = inbox ?? ConversationInbox()
+        self.mail = mail
+        self.progressDelay = progressDelay
     }
 
-    /// A nil response means the turn is durably queued; only the final answer is sent.
+    /// A nil response means the turn is durably queued; slow turns may get progress feedback.
     public func begin(question: String, to chatID: TransportChatID? = nil, sourceID: String? = nil) async throws -> String? {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               question.utf8.count <= 512 else { return "Send a message of at most 512 bytes." }
@@ -77,11 +82,26 @@ public actor ModelConversationService {
         let message = turn.question
         let chatID = turn.chatID
         let started = Date()
+        let previous = await history.lastUserMessage()
+        let query = ConversationContextRouter.retrievalQuery(for: message, previous: previous)
+        let needsMail = query.map(ConversationContextRouter.requestsMail) ?? false
+        let progress = ConversationProgress(
+            transport: transport, ledger: ledger, chatID: chatID,
+            text: needsMail ? "I'm checking Apple Mail on your Mac…" : "I'm working on that…",
+            delay: progressDelay
+        )
+        await progress.start()
         var reply: String
         do {
-            let previous = await history.lastUserMessage()
+            if needsMail, let mail {
+                do { try await MailIngestor(source: mail, store: store).run() }
+                catch {
+                    try await store.markSourceUnavailable(.mail)
+                    throw error
+                }
+            }
             let request: EvidenceRequest
-            if let query = ConversationContextRouter.retrievalQuery(for: message, previous: previous) {
+            if let query {
                 request = try await EvidenceRetriever(store: store).request(question: query)
             } else {
                 request = EvidenceRequest(question: message, records: [], coverage: [])
@@ -90,17 +110,23 @@ public actor ModelConversationService {
             print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
             let chat = ChatRequest(
                 message: message, history: await history.recent(),
-                records: request.records, coverage: request.coverage
+                records: request.records,
+                coverage: ["Host read capabilities: indexed Messages, Calendar, Contacts, \(mail == nil ? "no live Mail adapter" : "Apple Mail Inbox on email requests"), and paired phone sleep summaries. Coverage below describes this turn's available evidence; capability does not imply full access."] + request.coverage
             )
             try chat.validate()
             reply = try await provider.chat(chat).text
             try Task.checkCancellation()
             print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
         } catch is CancellationError {
+            await progress.stop()
             return
+        } catch let failure as MailSourceFailure {
+            reply = failure.description
         } catch {
             reply = "I couldn't answer locally right now. Check model-status on the Mac and try again."
         }
+        await progress.stop()
+        if Task.isCancelled { return }
         print("local answer prepared in \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)")
         let outbound = OutboundTransportMessage(text: reply)
         do {

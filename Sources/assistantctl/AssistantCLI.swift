@@ -8,6 +8,7 @@ import IMsgTransport
 import LocalInference
 import MacModelBridge
 import MacPhoneSync
+import MailAdapter
 import PhoneSync
 
 @main
@@ -289,7 +290,8 @@ struct AssistantCLI {
             let inbox = try ConversationInbox(fileURL: try stateURL("conversation-inbox.json"))
             let conversation = provider.map { selected in ModelConversationService(
                 store: answerStore, provider: selected, transport: controlTransport,
-                ledger: ledger, chatID: chat, history: chatHistory, inbox: inbox
+                ledger: ledger, chatID: chat, history: chatHistory, inbox: inbox,
+                mail: MailStoreSource()
             ) }
             let sessions: [ControlSession] = selfChats.map { route in
                 let service = EchoService(
@@ -322,6 +324,7 @@ struct AssistantCLI {
                 return ControlSession(chatID: route.id, service: service, conversation: conversation)
             }
             print("Serving owner commands. Press Control-C to stop.")
+            print("Apple Mail: read on email requests; allow Automation > Mail when prompted. Slow answers show progress feedback.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
             if model != nil {
                 let work = await inbox.counts()
@@ -452,6 +455,11 @@ struct AssistantCLI {
                     + "through \(formatter.string(from: summary.endDate)); "
                     + "cursor \(summary.cursor)."
             )
+
+        case "index-mail":
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let count = try await MailIngestor(source: MailStoreSource(), store: store).run()
+            print("Read \(count) Apple Mail Inbox snippets locally. Attachments and other folders are not included.")
 
         case "index-contacts":
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
@@ -659,6 +667,7 @@ struct AssistantCLI {
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
           assistantctl index-calendar
           assistantctl index-contacts
+          assistantctl index-mail
           assistantctl source-status
           assistantctl meeting-context --person <exact name, nickname, phone, or email>
           assistantctl index-commitments [--days <1...365>]
