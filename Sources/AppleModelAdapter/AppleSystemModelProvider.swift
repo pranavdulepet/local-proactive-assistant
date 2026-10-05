@@ -74,6 +74,38 @@ public actor AppleSystemModelProvider: LocalModelProvider {
         throw LocalModelFailure("Apple's on-device model is unavailable.")
     }
 
+    public func planContext(_ request: ContextPlanRequest) async throws -> ContextPlan {
+        try Task.checkCancellation()
+        try request.validate()
+        guard request.remainingCalls > 0, !request.availableTools.isEmpty else { return ContextPlan(calls: []) }
+        guard !generating else { throw LocalModelFailure("The local model is already answering.") }
+        guard availability().ready else { throw LocalModelFailure(availability().detail) }
+        generating = true
+        defer { generating = false }
+        #if canImport(FoundationModels)
+        if #available(macOS 26, iOS 26, *) {
+            let session = LanguageModelSession(instructions: ContextPlanningPrompt.instructions)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(request)
+            let response = try await session.respond(
+                to: "Plan reads from this bounded context JSON:\n" + String(decoding: data, as: UTF8.self),
+                generating: GeneratedContextPlan.self,
+                options: GenerationOptions(temperature: 0, maximumResponseTokens: 300)
+            )
+            try Task.checkCancellation()
+            let plan = ContextPlan(calls: response.content.calls.map { call in
+                ContextToolCall(tool: call.tool.contextTool,
+                    query: call.query?.trimmingCharacters(in: .whitespacesAndNewlines), path: call.path)
+            })
+            try plan.validate(for: request)
+            return plan
+        }
+        #endif
+        throw LocalModelFailure("Apple's on-device model is unavailable.")
+    }
+
     public func chat(_ request: ChatRequest) async throws -> ChatReply {
         try Task.checkCancellation()
         try request.validate()
@@ -90,8 +122,9 @@ public actor AppleSystemModelProvider: LocalModelProvider {
                 about your capabilities. You have no tools and cannot send messages, make purchases,
                 change settings, or promise to do work later. Do not invent personal facts.
                 For claims about the owner's private information, use only relevant supplied
-                evidence and cite its ID in square brackets. The recent conversation is for
-                continuity, not proof about outside facts. If personal evidence is missing,
+                evidence and cite its ID in square brackets. Compare actual event start/end
+                times before claiming an overlap; shared dates alone do not imply a conflict.
+                Conversation is for continuity, not proof about outside facts. If personal evidence is missing,
                 say what you cannot determine from the indexed sources. For ordinary chat or
                 general questions, respond normally without pretending to have searched.
                 Read source capabilities and access status from coverage. The host can supply
@@ -136,5 +169,47 @@ private struct GeneratedAnswer {
     var insufficientEvidence: Bool
     @Guide(description: "At most five short, evidence-backed claims. Empty if evidence is insufficient.")
     var claims: [GeneratedClaim]
+}
+
+@available(macOS 26, iOS 26, *)
+@Generable
+private enum GeneratedContextTool {
+    case searchIndex
+    case mailInbox
+    case searchFiles
+    case readFile
+    case notes
+    case reminders
+    case deviceInfo
+
+    var contextTool: ContextTool {
+        switch self {
+        case .searchIndex: .searchIndex
+        case .mailInbox: .mailInbox
+        case .searchFiles: .searchFiles
+        case .readFile: .readFile
+        case .notes: .notes
+        case .reminders: .reminders
+        case .deviceInfo: .deviceInfo
+        }
+    }
+}
+
+@available(macOS 26, iOS 26, *)
+@Generable
+private struct GeneratedContextCall {
+    @Guide(description: "An available read tool relevant to the latest message.")
+    var tool: GeneratedContextTool
+    @Guide(description: "A concise search query; nil for readFile and deviceInfo, and optional for inbox, notes and reminders.")
+    var query: String?
+    @Guide(description: "A permitted absolute file path only for readFile; nil for all other tools.")
+    var path: String?
+}
+
+@available(macOS 26, iOS 26, *)
+@Generable
+private struct GeneratedContextPlan {
+    @Guide(description: "At most remainingCalls read requests; empty when ready to reply from current context.", .count(0...3))
+    var calls: [GeneratedContextCall]
 }
 #endif

@@ -50,6 +50,21 @@ public actor MacModelProvider: LocalModelProvider {
         return reply
     }
 
+    public func planContext(_ request: ContextPlanRequest) async throws -> ContextPlan {
+        try request.validate()
+        guard !generating else { throw LocalModelFailure("A local answer is already in progress.") }
+        generating = true
+        defer { generating = false }
+        let response = try await exchange(
+            ModelWireRequest(operation: .planContext, contextPlanRequest: request), timeout: 45
+        )
+        guard let plan = response.contextPlan else {
+            throw LocalModelFailure(response.failure ?? "Missing worker context plan.")
+        }
+        try plan.validate(for: request)
+        return plan
+    }
+
     private func exchange(_ request: ModelWireRequest, timeout: TimeInterval) async throws -> ModelWireResponse {
         try Self.verifySandboxedSignature(at: executable)
         let encoder = JSONEncoder()

@@ -8,6 +8,7 @@ import IMsgTransport
 import LocalInference
 import MacModelBridge
 import MacPhoneSync
+import MacContextAdapter
 import MailAdapter
 import PhoneSync
 
@@ -58,6 +59,24 @@ struct AssistantCLI {
             print("\(provider.modelID): \(state.ready ? "ready" : "unavailable")")
             print(state.detail)
             if !state.ready { exit(1) }
+
+        case "prepare-access":
+            print("Connect your local apps now. Accept macOS Automation prompts for sources you want to use.")
+            let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
+            let source = IndexedContextSource(store: store, mail: MailStoreSource(), additional: MacContextSource())
+            var unavailable = 0
+            for tool in [ContextTool.mailInbox, .notes, .reminders] {
+                do {
+                    let result = try await source.execute(ContextToolCall(tool: tool))
+                    print("\(tool.rawValue): connected; \(result.records.count) bounded sample records. Contents are not printed.")
+                } catch {
+                    unavailable += 1
+                    print("\(tool.rawValue): \(error)")
+                }
+            }
+            if unavailable > 0 {
+                throw CLIError("Some sources are not connected. Chat still works with permitted sources; run assistantctl prepare-access again after granting access.")
+            }
 
         case "ask", "export-context":
             guard let question = takeOption("--question", from: &arguments) else {
@@ -288,10 +307,19 @@ struct AssistantCLI {
             let controlTransport = PollingIMsgTransport(base: transport)
             let ownerRouteIDs = Set(selfChats.map(\.id))
             let inbox = try ConversationInbox(fileURL: try stateURL("conversation-inbox.json"))
+            var readRoots: [URL] = []
+            while let root = takeOption("--read-root", from: &arguments) {
+                readRoots.append(URL(fileURLWithPath: root, isDirectory: true))
+            }
+            let localReads = MacContextSource(allowedRoots: readRoots.isEmpty ? nil : MacContextSource.defaultRoots + readRoots)
+            let contextSource = IndexedContextSource(
+                store: answerStore, mail: MailStoreSource(), additional: localReads
+            )
             let conversation = provider.map { selected in ModelConversationService(
                 store: answerStore, provider: selected, transport: controlTransport,
                 ledger: ledger, chatID: chat, history: chatHistory, inbox: inbox,
-                mail: MailStoreSource()
+                mail: MailStoreSource(), contextSource: contextSource,
+                contextTools: ContextTool.allCases
             ) }
             let sessions: [ControlSession] = selfChats.map { route in
                 let service = EchoService(
@@ -325,6 +353,7 @@ struct AssistantCLI {
             }
             print("Serving owner commands. Press Control-C to stop.")
             print("Apple Mail: read on email requests; allow Automation > Mail when prompted. Slow answers show progress feedback.")
+            print("Local reads: indexed personal sources, Mail, Notes, Reminders and permitted documents. The model chooses bounded read requests; access errors are reported.")
             print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
             if model != nil {
                 let work = await inbox.counts()
@@ -654,10 +683,11 @@ struct AssistantCLI {
           assistantctl pair-chat [--imsg <path>]
           assistantctl add-self-handle --address <your phone or email>
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
-          assistantctl serve [--control-chat-id <id>] [--model apple|local] [--model-url <loopback-url> --model-name <model>] [--imsg <path>]
+          assistantctl serve [--control-chat-id <id>] [--model apple|local] [--model-url <loopback-url> --model-name <model>] [--read-root <folder>] [--imsg <path>]
           assistantctl pair-phone [--host <local-hostname-or-LAN-IP>]
           assistantctl unpair-phone
           assistantctl model-status
+          assistantctl prepare-access
           assistantctl model-eval
           assistantctl ask --question <question> [--person <exact person>]
           assistantctl export-context --question <question> [--person <exact person>] --output <file.lpa-context>

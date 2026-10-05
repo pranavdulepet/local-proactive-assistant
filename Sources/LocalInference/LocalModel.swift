@@ -10,15 +10,19 @@ public struct ModelAvailability: Codable, Equatable, Sendable {
     }
 }
 
-/// Providers receive bounded evidence, never a store, recipient, policy or action tool.
+/// Providers receive bounded evidence and may propose host-validated read requests.
 public protocol LocalModelProvider: Sendable {
     var modelID: String { get }
     func availability() async -> ModelAvailability
     func answer(_ request: EvidenceRequest) async throws -> GroundedAnswer
     func chat(_ request: ChatRequest) async throws -> ChatReply
+    func planContext(_ request: ContextPlanRequest) async throws -> ContextPlan
 }
 
 public extension LocalModelProvider {
+    func planContext(_ request: ContextPlanRequest) async throws -> ContextPlan {
+        throw ContextPlanningUnavailable()
+    }
     func chat(_ request: ChatRequest) async throws -> ChatReply {
         throw LocalModelFailure("This local model does not support conversation.")
     }

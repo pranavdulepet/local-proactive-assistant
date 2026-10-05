@@ -22,6 +22,8 @@ if name == "uname":
     print("Darwin")
 elif name == "sysctl":
     print(48 * 1024 ** 3)
+elif name == "sw_vers":
+    print("26.0")
 elif name == "brew":
     if args[:1] == ["list"]:
         sys.exit(1 if flag("app_install") else 0)
@@ -70,19 +72,20 @@ class StarterTests(unittest.TestCase):
             repo = root / "repo"
             (repo / "scripts").mkdir(parents=True)
             shutil.copyfile(STARTER, repo / "scripts/start-open-model.sh")
+            shutil.copyfile(STARTER.parent / "startup-common.sh", repo / "scripts/startup-common.sh")
             (repo / "scripts/start.sh").write_text(
                 '#!/bin/bash\nprintf "%s\\n" "$ASSISTANT_MODEL_URL" "$ASSISTANT_MODEL_NAME" > "$FIXTURE_ROOT/host"\n'
             )
             (root / "bin").mkdir()
             (root / "brew-prefix/bin").mkdir(parents=True)
-            for name in ("uname", "sysctl", "brew", "curl", "ollama"):
+            for name in ("uname", "sysctl", "sw_vers", "brew", "curl", "ollama"):
                 target = root / "bin" / name
                 target.write_text(STUB)
                 target.chmod(0o755)
             shutil.copyfile(root / "bin/ollama", root / "brew-prefix/bin/ollama")
             (root / "brew-prefix/bin/ollama").chmod(0o755)
             for flag in flags: (root / flag).touch()
-            env = dict(os.environ, FIXTURE_ROOT=tmp, TMPDIR=tmp,
+            env = dict(os.environ, FIXTURE_ROOT=tmp, TMPDIR=tmp, HOME=str(root / "home"),
                        PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                        OLLAMA_HOST="https://remote.invalid")
             env.pop("ASSISTANT_OPEN_MODEL", None)

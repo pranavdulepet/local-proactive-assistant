@@ -1,16 +1,15 @@
 # Local Proactive Assistant
 
-A local-first macOS assistant that tracks loose ends and eventually sends a small number of evidence-backed iMessages. Personal-source indexing and model inference stay on user-controlled Apple hardware.
+**Turn your number into a personal, local AI assistant.**
 
-This repository started with a reliable self-chat transport loop. It now has read-only
-Messages, Calendar and Contacts ingestion, bounded Mac-local answers, and a phone source
-companion. **Messages is the main conversation interface.** The Mac answers through
-Messages. The optional phone app can answer locally while open on a supported iPhone and
-shares selected derived sleep context with its paired Mac.
+Text your own number from your iPhone. Your Mac reads permitted local sources, searches for
+relevant information, and answers in Messages using a model running on your hardware.
+Messages is the conversation interface; the optional iPhone app adds permissioned phone context.
+The Mac must remain awake, online, and running the host.
 
-## Quick start
+## Start
 
-On a Mac signed into Messages, clone the repository and run the guided starter:
+On a Mac signed into Messages:
 
 ```bash
 git clone https://github.com/pranavdulepet/local-proactive-assistant.git
@@ -18,88 +17,102 @@ cd local-proactive-assistant
 bash scripts/start.sh
 ```
 
-The first run checks prerequisites, builds the local worker, and asks you to send a one-time
-pairing code to your iMessage self-chat. Confirm the chat it finds. Later runs reuse that choice.
-You must grant macOS Full Disk Access to your terminal and Automation permission for Messages
-when prompted. Apple model answers require Apple silicon, macOS 26+, Apple Intelligence enabled,
-and Xcode 26+. For a larger open-weight model selected for the Mac's memory, use `bash scripts/start-open-model.sh` instead. On a 48 GB Mac it downloads Qwen3.8 27B (about 18 GB) once and serves it locally. The Mac must stay awake with the host running. See [the guided setup](docs/local-models.md).
+Or [download the repository ZIP](https://github.com/pranavdulepet/local-proactive-assistant/archive/refs/heads/main.zip),
+extract it, and open `scripts/Assistant.command`. If macOS prevents opening the launcher,
+run `bash scripts/start.sh` in Terminal from the extracted folder.
 
-## Mac model choices
+The guided starter checks developer tools, installs the Messages helper, and remembers your
+model choice. Choose a recommended Ollama model, Apple's on-device model, another local
+Ollama model, or an existing local server. It pairs your private self-chat with a one-time code;
+you never need to look up chat IDs. It also offers to prepare Mail, Notes, and Reminders access
+on the Mac before you ask about them from your phone.
 
-`bash scripts/start.sh` uses Apple's on-device model, already available on supported Macs. For an open-weight model, run:
+macOS controls source access. Allow Full Disk Access for your terminal, reopen it when asked,
+and allow Automation for Messages and the connected apps. This is currently a source build:
+Swift 6-compatible developer tools are required. Apple's model additionally needs Apple
+silicon, macOS 26+, Apple Intelligence, and Xcode 26+. A signed, downloadable host app is still
+planned. See [installation and first text](docs/install.md).
+
+## Choose a local model
+
+`bash scripts/start.sh` reuses your saved model after the first run. To change it:
 
 ```bash
-bash scripts/start-open-model.sh
+bash scripts/start.sh --choose-model
 ```
 
-That starter installs the Ollama CLI with Homebrew if needed, starts a loopback server, downloads a model once, and launches the same Messages assistant. It selects Qwen3.8 27B Q4 on Macs with at least 40 GB memory (about 18 GB of weights), Qwen3.5 9B on 16–39 GB, and Qwen3.5 4B on 12–15 GB. Set `ASSISTANT_OPEN_MODEL=<an Ollama local model tag>` to override. Restart the assistant to switch back with `bash scripts/start.sh`. Only one host should run at a time.
+The Ollama recommendation leaves room for macOS and the assistant; weights still need
+extra memory while running. These are starting points, not speed guarantees:
 
-For other model runtimes, use `ASSISTANT_MODEL=local ASSISTANT_MODEL_NAME=<loaded model> ASSISTANT_MODEL_URL=http://127.0.0.1:<port>/v1 bash scripts/start.sh`. The runtime must implement `/v1/chat/completions` and `/v1/models`. “OpenAI-compatible” names the local wire format, not a cloud provider. Literal loopback HTTP URLs are required and redirects are blocked. A user-supplied local proxy may itself forward requests; choose a runtime that stays offline if that matters to you. The open-model starter uses local Ollama tags and needs network only to download weights. Set `ASSISTANT_LOCAL_REASONING_EFFORT=none` for a compatible quick-chat model; the open-model starter does this by default.
+| Mac memory | Suggested Ollama model | Approximate weights |
+| --- | --- | --- |
+| 40 GB or more | Qwen3.8 27B Q4 | 18 GB |
+| 16–39 GB | Qwen3.5 9B Q4 | 6.6 GB |
+| 12–15 GB | Qwen3.5 4B Q4 | 3.4 GB |
+| Less than 12 GB | Qwen3.5 2B | 2.7 GB |
 
-## Current stage: Messages assistant with paired phone context
+You can still run `bash scripts/start-open-model.sh` directly. Set `ASSISTANT_OPEN_MODEL`
+to a different local Ollama tag. Weights download once and remain on the Mac. The starter
+installs Ollama if needed, disables its cloud features, and uses an owned loopback server on
+port 11435 so an older desktop server cannot silently handle the new model.
 
-See [docs/local-models.md](docs/local-models.md) for setup. Install the Mac worker, start the host,
-and text your private Messages self-chat from anywhere the phone and Mac have connectivity. The Mac must remain online and running the host. Pair the optional phone companion once to include
-derived sleep summaries. Mac generation needs Apple Intelligence support and macOS 26+; the
-source companion supports iOS 17+. Build with Xcode 26+.
+For a model already running in another local runtime:
 
-The first slice:
-
-```text
-iPhone self-chat
-→ Messages.app on Mac
-→ imsg watcher
-→ deterministic echo
-→ fixed control chat
+```bash
+ASSISTANT_MODEL=local \
+ASSISTANT_MODEL_NAME=your-loaded-model \
+ASSISTANT_MODEL_URL=http://127.0.0.1:1234/v1 \
+bash scripts/start.sh
 ```
 
-Implemented now:
+The runtime needs `/v1/chat/completions`, `/v1/models`, and structured JSON responses for
+context planning. “OpenAI-compatible” describes that local protocol; it does not select a cloud
+provider. Only literal loopback HTTP endpoints are accepted and redirects are blocked.
+A local proxy can itself forward requests, so choose an offline runtime. Ollama cloud tags
+are rejected. Stop the existing assistant before switching models.
 
-- a small `MessageTransport` boundary;
-- an `imsg` adapter for chat listing, JSON-RPC watching, paged history catchup for owner commands, health checks, and sending;
-- exact-chat filtering, durable per-chat cursors, and automatic resume;
-- bounded reconnect backoff with visible degraded-state output;
-- outbound GUID/content ledger for self-echo suppression;
-- a deterministic echo service;
-- focused unit tests;
-- a CLI for Mac device testing.
-- append-only SQLite observations with current heads and FTS5 search;
-- resumable one-to-one Messages history ingestion with durable source cursors.
-- bounded, read-only EventKit ingestion with explicit authorization and scan coverage.
-- deterministic Contacts ingestion for local handle-to-person resolution.
-- persisted, explicit coverage status for Messages, Calendar, and Contacts;
-- exact phone/email joins across contacts, events, and direct messages;
-- a deterministic meeting-context evidence query with explicit ambiguity errors.
-- typed commitment assertions linked to source evidence;
-- a versioned deterministic extractor for explicit, actionable, owner-authored,
-  time-bound commitments;
-- open-commitment, evidence explanation, and explicit completion commands;
-- an owner-control service for evidence, completion, meeting context, pause and status;
-- automatic, independent source refresh in a single supervised host;
-- one opt-in due-commitment reminder rule with persistent reservations and gate audits.
-- a small `LocalModelProvider` contract, bounded evidence documents and validated citation IDs;
-- Apple on-device structured generation with deterministic evidence-only fallback;
-- a signed sandboxed Mac model worker, question CLI and nonblocking `/ask` owner commands;
-- a phone companion for QR pairing and optional derived HealthKit sleep sharing;
-- pinned HTTPS, Keychain pairing credentials, durable phone upload queue and Mac acknowledgment;
-- macOS tests, worker isolation checks and simulator/device iOS builds in CI.
+## Current capabilities
 
-`imsg` is the first adapter because its stable JSON/JSON-RPC surfaces expose resumable row cursors and send GUIDs. `platform-imessage` remains a later comparison backend behind the same transport contract.
+The host keeps a bounded private conversation history, makes validated read requests, and
+can refine a search before answering. It has no general-purpose shell tool and never lets
+the model choose an outbound recipient. Source text is treated as data.
 
-The P0 self-chat gate has passed physical round-trip, restart/resume, forced reconnect, duplicate-content, tapback, cellular, and delayed-sync checks. Lock-screen, reboot, and long-run checks remain ongoing soak tests.
+| Source | Current scope |
+| --- | --- |
+| Messages | Indexed one-to-one text history; coverage is reported |
+| Calendar | Permissioned events in the refresh window |
+| Contacts | Permissioned local contacts and identity joins |
+| Apple Mail | A bounded Inbox sample with body snippets |
+| Notes and Reminders | Bounded permissioned read samples |
+| Local files | Supported formats within permitted roots; an extra folder can be added |
+| Mac details | Fixed read-only device information |
+| Phone context | Optional paired companion with derived HealthKit sleep context |
 
-Milestone 1 starts with a small `AssistantStore` module: append-only, versioned observations from Messages, Calendar, and Contacts; current-version heads; tombstones; and SQLite FTS5 search. See [docs/m1-storage.md](docs/m1-storage.md).
+Ask naturally in the verified self-chat. Slow turns show native typing when the existing
+transport supports it, otherwise one short progress acknowledgment. Bubble color is controlled
+by Messages and may be blue or gray because both sides use your own account.
+
+The transport has durable cursors, reconnect recovery, and an outbound ledger to prevent
+self-reply loops. An unconfirmed send is not automatically resent. One opt-in commitment
+reminder rule starts paused; `/resume` enables it, and `/pause` stops unsolicited reminders
+while conversation commands keep working.
+
+This remains a development-stage foreground host. The paired phone companion adds selected
+phone context; it is not an independent iMessage responder. A signed host app and richer
+phone-model choices remain planned. See [model and phone details](docs/local-models.md),
+[storage](docs/m1-storage.md), and [host policy](docs/m1-host.md).
 
 ## Requirements
 
 - Apple silicon or Intel Mac running macOS 14+
-- Xcode with Swift 6
+- Swift 6-compatible Command Line Tools or Xcode; Xcode 26+ for the Apple model or phone app
 - Messages.app signed into iMessage
 - [`imsg`](https://github.com/openclaw/imsg) installed
 - Full Disk Access for the calling host/terminal
 - Automation permission to control Messages.app
 - Calendar full-access permission for the terminal or host running `assistantctl`
 - Contacts permission for the terminal or host running `assistantctl`
+- Automation permission for Mail and Notes, and Reminders permission, to connect those sources
 
 Install `imsg`:
 
@@ -117,6 +130,8 @@ swift run assistantctl echo --chat-id <SELF_CHAT_ID>
 swift run assistantctl index-messages --control-chat-id <SELF_CHAT_ID>
 swift run assistantctl index-calendar
 swift run assistantctl index-contacts
+swift run assistantctl prepare-access
+swift run assistantctl index-mail
 swift run assistantctl source-status
 swift run assistantctl meeting-context --person "<exact contact name>"
 swift run assistantctl index-commitments --days 30
