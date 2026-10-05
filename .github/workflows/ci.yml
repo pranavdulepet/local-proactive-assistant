@@ -22,9 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check starter syntax
-        run: bash -n scripts/start.sh scripts/start-open-model.sh
-      - name: Test open-model setup recovery
-        run: python3 Tests/ScriptTests/test_open_model_starter.py
+        run: bash -n scripts/start.sh scripts/start-open-model.sh scripts/startup-common.sh scripts/Assistant.command
+      - name: Test guided setup and open-model recovery
+        run: python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
       - name: Test
         run: swift test
       - name: Install and probe sandboxed model worker

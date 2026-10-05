@@ -15,6 +15,6 @@
     <key>NSContactsUsageDescription</key>
     <string>Read your contacts to resolve message and meeting participants on this Mac.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Read locally synced email from Mail and send assistant replies to your verified Messages chat.</string>
+    <string>Read your local Mail, Notes and Reminders for personal questions, and send assistant replies to your verified Messages chat.</string>
 </dict>
 </plist>

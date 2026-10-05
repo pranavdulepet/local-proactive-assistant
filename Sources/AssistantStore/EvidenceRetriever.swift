@@ -32,6 +32,33 @@ public struct EvidenceRetriever: Sendable {
         return try await store.search(query, sources: sources, limit: 8).map(\.observation)
     }
 
+    private static func calendarWindow(_ query: String, now: Date) -> (Date, Date) {
+        let calendar = Calendar.autoupdatingCurrent
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        let pattern = try! NSRegularExpression(pattern: #"\b\d{4}-\d{2}-\d{2}\b"#)
+        let dates = pattern.matches(in: query, range: NSRange(query.startIndex..., in: query))
+            .prefix(2).compactMap { match -> Date? in
+                guard let range = Range(match.range, in: query) else { return nil }
+                return formatter.date(from: String(query[range]))
+            }
+        if let first = dates.first {
+            let last = dates.dropFirst().first ?? first
+            let start = calendar.startOfDay(for: min(first, last))
+            let finalDay = calendar.startOfDay(for: max(first, last))
+            // The requested ISO date range is inclusive of its final day.
+            return (start, calendar.date(byAdding: .day, value: 1, to: finalDay)!)
+        }
+        let offset = query.contains("tomorrow") ? 1 : (query.contains("yesterday") ? -1 : 0)
+        let start = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: now))!
+        let end = calendar.date(byAdding: .day, value: query.contains("week") ? 7 : 1, to: start)!
+        return (start, end)
+    }
+
     public func request(question: String, meetingPerson: String? = nil, now: Date = Date()) async throws -> EvidenceRequest {
         let normalized = question.lowercased()
         let words = Set(normalized.split { !$0.isLetter && !$0.isNumber }.map(String.init))
@@ -67,11 +94,7 @@ public struct EvidenceRetriever: Sendable {
             observations = try await store.currentObservations(source: .health, trust: .structuredSource, limit: 2)
         } else if !words.isDisjoint(with: ["calendar", "schedule", "agenda", "meeting", "meetings", "appointment", "appointments", "event", "events", "availability", "plans"]) ||
             (words.contains("my") && !words.isDisjoint(with: ["today", "tomorrow", "week", "day"])) {
-            let calendar = Calendar.autoupdatingCurrent
-            let start = normalized.contains("tomorrow")
-                ? calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
-                : calendar.startOfDay(for: now)
-            let end = calendar.date(byAdding: .day, value: normalized.contains("week") ? 7 : 1, to: start)!
+            let (start, end) = Self.calendarWindow(normalized, now: now)
             observations = try await store.currentObservations(source: .calendar, trust: .structuredSource, from: start, to: end.addingTimeInterval(-0.001), limit: 8)
         } else {
             let terms = Self.searchTerms(question)

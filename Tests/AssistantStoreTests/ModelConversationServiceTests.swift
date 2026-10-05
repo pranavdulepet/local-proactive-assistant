@@ -5,6 +5,21 @@ import Testing
 @testable import AssistantStore
 
 struct ModelConversationServiceTests {
+    @Test func conversationQueueUsesModelSelectedSourcesForParaphrasedRequests() async throws {
+        let transport = AnswerTransport()
+        let source = PlannedNotesFixture()
+        let service = ModelConversationService(
+            store: try ObservationStore(), provider: PlanningChatFixture(),
+            transport: transport, ledger: try OutboundLedger(),
+            chatID: TransportChatID(rawValue: 954), contextSource: source,
+            contextTools: [.notes]
+        )
+        #expect(try await service.begin(question: "Find what I wrote about the launch") == nil)
+        let sent = await transport.waitForSend()
+        #expect(sent.0.text == "Your launch note says Friday. [e1]")
+        #expect(await source.count() == 1)
+    }
+
     @Test func ordinaryTextUsesOnDeviceChatAndPersistsRecentTurns() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -140,6 +155,35 @@ private struct LiveMailFixture: MailSource {
     func inboxSnapshot() -> MailSnapshot {
         let record = MailMessageRecord(externalID: "live", sender: "Maya", subject: "Project review", receivedAt: Date(), unread: true, body: "Review at five.")
         return MailSnapshot(messages: [record], totalInbox: 1, scanned: 1)
+    }
+}
+
+private struct PlanningChatFixture: LocalModelProvider {
+    let modelID = "planning-test"
+    func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "ready") }
+    func answer(_ request: EvidenceRequest) throws -> GroundedAnswer {
+        throw LocalModelFailure("Unexpected structured request")
+    }
+    func planContext(_ request: ContextPlanRequest) -> ContextPlan {
+        ContextPlan(calls: [ContextToolCall(tool: .notes, query: "launch")])
+    }
+    func chat(_ request: ChatRequest) throws -> ChatReply {
+        guard request.records.first?.source == "notes", request.records.first?.text == "Launch on Friday." else {
+            throw LocalModelFailure("Missing planned note evidence")
+        }
+        return ChatReply(text: "Your launch note says Friday. [e1]")
+    }
+}
+
+private actor PlannedNotesFixture: ReadContextSource {
+    private var reads = 0
+    func count() -> Int { reads }
+    func execute(_ call: ContextToolCall) -> ContextToolResult {
+        reads += 1
+        return ContextToolResult(records: [EvidenceRecord(
+            id: "note", source: "notes", timestamp: nil, text: "Launch on Friday.",
+            locator: "notes:test", trust: "unknownExternal"
+        )], coverage: ["Notes: one supplied test note."])
     }
 }
 

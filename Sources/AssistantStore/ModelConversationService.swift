@@ -14,6 +14,8 @@ public actor ModelConversationService {
     private let inbox: ConversationInbox
     private let mail: (any MailSource)?
     private let progressDelay: Duration
+    private let contextSource: (any ReadContextSource)?
+    private let contextTools: [ContextTool]
     private var stopping = false
 
     public init(
@@ -21,7 +23,9 @@ public actor ModelConversationService {
         transport: any MessageTransport, ledger: OutboundLedger,
         chatID: TransportChatID, history: ConversationHistory? = nil,
         inbox: ConversationInbox? = nil, mail: (any MailSource)? = nil,
-        progressDelay: Duration = .seconds(2)
+        progressDelay: Duration = .seconds(2),
+        contextSource: (any ReadContextSource)? = nil,
+        contextTools: [ContextTool] = []
     ) {
         self.store = store
         self.provider = provider
@@ -32,6 +36,8 @@ public actor ModelConversationService {
         self.inbox = inbox ?? ConversationInbox()
         self.mail = mail
         self.progressDelay = progressDelay
+        self.contextSource = contextSource
+        self.contextTools = contextTools
     }
 
     /// A nil response means the turn is durably queued; slow turns may get progress feedback.
@@ -93,6 +99,19 @@ public actor ModelConversationService {
         await progress.start()
         var reply: String
         do {
+            if let contextSource {
+                let answer = try await PersonalContextAgent(
+                    provider: provider, source: contextSource, availableTools: contextTools,
+                    coverage: [
+                        "Current host time: \(ISO8601DateFormatter().string(from: Date())); timezone: \(TimeZone.autoupdatingCurrent.identifier). Relative dates refer to this host clock.",
+                        "Each read reports coverage and access errors. Available tools describe host capabilities, not proof of complete access. These reads cannot send or modify source data."
+                    ]
+                ).reply(message: message, history: await history.recent())
+                for entry in answer.trace {
+                    print("local context \(entry.stage) \(entry.tool?.rawValue ?? "model"): \(entry.elapsedMilliseconds)ms; \(entry.outcome)")
+                }
+                reply = answer.reply.text
+            } else {
             if needsMail, let mail {
                 do { try await MailIngestor(source: mail, store: store).run() }
                 catch {
@@ -117,6 +136,7 @@ public actor ModelConversationService {
             reply = try await provider.chat(chat).text
             try Task.checkCancellation()
             print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
+            }
         } catch is CancellationError {
             await progress.stop()
             return
