@@ -91,7 +91,7 @@ struct MacContextSourceTests {
 
     @Test func applicationPermissionFailureThrowsSanitizedError() async throws {
         let runner = ContextCommandRunner { _, _, _, _, _ in
-            throw MacContextFailure("secret note content: token=abc")
+            throw MacContextFailure("secret note content: token=abc", kind: .permissionDenied, systemCode: -1743)
         }
         do {
             _ = try await MacContextSource(allowedRoots: [], runner: runner).execute(.init(tool: .notes))

@@ -44,29 +44,59 @@ public struct PersonalContextAgent: Sendable {
         var coverage = initialCoverage
         var executed: [ContextToolCall] = []
         var trace: [PersonalContextTrace] = []
+        var blockedTools = Set<ContextTool>()
+        var readStatuses: [ContextReadStatus] = []
+        var failures: [String] = []
 
         for pass in 0..<2 {
             try Task.checkCancellation()
             // The planner can use all three reads for a combined-source question,
             // or leave reads available for discovery and refinement.
             let remaining = 3 - executed.count
-            guard remaining > 0 else { break }
+            let permittedTools = availableTools.filter { !blockedTools.contains($0) }
+            guard remaining > 0, !permittedTools.isEmpty else { break }
             let request = ContextPlanRequest(
                 message: message, history: history, records: records,
-                coverage: boundedCoverage(coverage), availableTools: availableTools,
+                coverage: boundedCoverage(coverage), availableTools: permittedTools,
                 executedCalls: executed, remainingCalls: remaining, createdAt: clock()
             )
             try request.validate()
             let started = clock()
-            let plan = try await provider.planContext(request)
-            try plan.validate(for: request)
+            let plan: ContextPlan
+            do {
+                plan = try await provider.planContext(request)
+                try plan.validate(for: request)
+            } catch is ContextPlanFailure {
+                trace.append(PersonalContextTrace(stage: "planning", tool: nil,
+                    elapsedMilliseconds: milliseconds(since: started), outcome: "invalid response; no reads executed"))
+                coverage.append("The local model's context plan was invalid. No reads from that plan were executed.")
+                if executed.isEmpty {
+                    return PersonalContextAnswer(
+                        reply: ChatReply(text: "I couldn't select a valid local read for that request. Try naming the app, folder, or item you want me to check."),
+                        trace: trace
+                    )
+                }
+                break
+            }
             trace.append(PersonalContextTrace(stage: "planning", tool: nil,
                 elapsedMilliseconds: milliseconds(since: started), outcome: "pass \(pass + 1); \(plan.calls.count) reads"))
+            if let text = plan.reply {
+                let reply = ChatReply(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+                try reply.validate(for: ChatRequest(message: message, history: history, coverage: request.coverage))
+                trace.append(PersonalContextTrace(stage: "reply", tool: nil,
+                    elapsedMilliseconds: 0, outcome: "included in initial response"))
+                return PersonalContextAnswer(reply: reply, trace: trace)
+            }
             if plan.calls.isEmpty { break }
 
             var shouldRefine = false
             for call in plan.calls {
                 try Task.checkCancellation()
+                if blockedTools.contains(call.tool) {
+                    trace.append(PersonalContextTrace(stage: "read", tool: call.tool,
+                        elapsedMilliseconds: 0, outcome: "skipped after earlier failure"))
+                    continue
+                }
                 // Attempted reads count even if they fail; the model cannot retry indefinitely.
                 executed.append(call)
                 let started = clock()
@@ -75,6 +105,8 @@ public struct PersonalContextAgent: Sendable {
                     try result.validate()
                     records = merging(records, with: result.records)
                     coverage.append(contentsOf: result.coverage)
+                    readStatuses.append(ContextReadStatus(tool: call.tool,
+                        outcome: result.records.isEmpty ? .empty : .read, recordCount: result.records.count))
                     trace.append(PersonalContextTrace(stage: "read", tool: call.tool,
                         elapsedMilliseconds: milliseconds(since: started), outcome: "\(result.records.count) records"))
                     // File discovery returns candidate paths, so a second pass may read a candidate.
@@ -82,7 +114,10 @@ public struct PersonalContextAgent: Sendable {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    shouldRefine = true
+                    // Changing query cannot fix an unavailable reader during this turn.
+                    blockedTools.insert(call.tool)
+                    readStatuses.append(ContextReadStatus(tool: call.tool, outcome: .failed, recordCount: 0))
+                    failures.append(EvidenceText.bounded(String(describing: error), bytes: 384))
                     coverage.append(EvidenceText.bounded("\(call.tool.rawValue): read failed. \(error)", bytes: 512))
                     trace.append(PersonalContextTrace(stage: "read", tool: call.tool,
                         elapsedMilliseconds: milliseconds(since: started), outcome: "unavailable"))
@@ -92,12 +127,30 @@ public struct PersonalContextAgent: Sendable {
         }
 
         try Task.checkCancellation()
+        if !readStatuses.isEmpty, readStatuses.allSatisfy({ $0.outcome == .failed }) {
+            let reasons = Array(Set(failures)).sorted().joined(separator: " ")
+            let reply = ChatReply(text: "I couldn't read the requested information on the Mac this time. " + reasons)
+            try reply.validate()
+            trace.append(PersonalContextTrace(stage: "reply", tool: nil,
+                elapsedMilliseconds: 0, outcome: "host read failure"))
+            return PersonalContextAnswer(reply: reply, trace: trace)
+        }
         let request = ChatRequest(message: message, history: history,
-            records: records, coverage: boundedCoverage(coverage))
+            records: records, coverage: boundedCoverage(coverage), contextReads: readStatuses)
         try request.validate()
         let started = clock()
-        let reply = try await provider.chat(request)
-        try reply.validate()
+        let reply: ChatReply
+        do {
+            reply = try await provider.chat(request)
+            try reply.validate(for: request)
+        } catch is ChatReplyFailure {
+            trace.append(PersonalContextTrace(stage: "reply", tool: nil,
+                elapsedMilliseconds: milliseconds(since: started), outcome: "unverified response withheld"))
+            return PersonalContextAnswer(
+                reply: ChatReply(text: "I couldn't verify an answer from the local results. Try asking about a specific item."),
+                trace: trace
+            )
+        }
         trace.append(PersonalContextTrace(stage: "reply", tool: nil,
             elapsedMilliseconds: milliseconds(since: started), outcome: "generated"))
         return PersonalContextAnswer(reply: reply, trace: trace)

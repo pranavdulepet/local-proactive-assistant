@@ -33,3 +33,4 @@ public struct SourceCoverage: Codable, Equatable, Sendable {
         self.limitations = limitations
     }
 }
+

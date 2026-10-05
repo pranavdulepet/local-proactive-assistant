@@ -25,6 +25,9 @@ struct AssistantCLI {
 
     private static func run() async throws {
         var arguments = Array(CommandLine.arguments.dropFirst())
+        let quiet = takeFlag("--quiet", from: &arguments)
+        let verbose = takeFlag("--verbose", from: &arguments)
+            || ProcessInfo.processInfo.environment["ASSISTANT_DEBUG"] == "1"
         let executable = takeOption("--imsg", from: &arguments) ?? "imsg"
         let transport = IMsgTransport(executable: executable)
 
@@ -56,26 +59,37 @@ struct AssistantCLI {
             let localName = takeOption("--model-name", from: &arguments)
             let provider = try selectedModel(model, url: localURL, name: localName)
             let state = await provider.availability()
-            print("\(provider.modelID): \(state.ready ? "ready" : "unavailable")")
-            print(state.detail)
+            if !quiet || !state.ready {
+                print("\(provider.modelID): \(state.ready ? "ready" : "unavailable")")
+                print(state.detail)
+            }
             if !state.ready { exit(1) }
 
         case "prepare-access":
-            print("Connect your local apps now. Accept macOS Automation prompts for sources you want to use.")
+            if !quiet { print("Allow access to the local apps you want to use when macOS asks.") }
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
-            let source = IndexedContextSource(store: store, mail: MailStoreSource(), additional: MacContextSource())
+            let access = try SourceAccessRegistry(fileURL: try stateURL("source-access.json"))
+            let source = IndexedContextSource(store: store, mail: MailStoreSource(),
+                additional: MacContextSource(requestPermissions: true), access: access)
             var unavailable = 0
             for tool in [ContextTool.mailInbox, .notes, .reminders] {
                 do {
-                    let result = try await source.execute(ContextToolCall(tool: tool))
-                    print("\(tool.rawValue): connected; \(result.records.count) bounded sample records. Contents are not printed.")
+                    if tool == .mailInbox {
+                        try await MailStoreSource().checkAccess()
+                        try await access.record(tool: .mailInbox, ready: true, detail: "Mail metadata is readable; search coverage is checked per question.")
+                    } else {
+                        _ = try await source.execute(ContextToolCall(tool: tool))
+                    }
+                    if !quiet { print("\(SourceAccessRegistry.name(tool)): readable. Search coverage is reported with each answer.") }
                 } catch {
                     unavailable += 1
-                    print("\(tool.rawValue): \(error)")
+                    try? await access.record(tool: tool, ready: false, detail: String(describing: error))
+                    print("\(error)")
                 }
             }
             if unavailable > 0 {
-                throw CLIError("Some sources are not connected. Chat still works with permitted sources; run assistantctl prepare-access again after granting access.")
+                if !quiet { print("Chat can use the readable sources. Run prepare-access again to retry unavailable apps.") }
+                exit(1)
             }
 
         case "ask", "export-context":
@@ -115,9 +129,11 @@ struct AssistantCLI {
 
         case "doctor":
             let health = await transport.probe()
-            print("imsg: \(health.ready ? "ready" : "unavailable")")
-            if let version = health.version { print("version: \(version)") }
-            print(health.detail)
+            if !quiet || !health.ready {
+                print("Messages: \(health.ready ? "ready" : "unavailable")")
+                if let version = health.version, verbose { print("imsg \(version)") }
+                print(health.detail)
+            }
             if !health.ready { exit(1) }
 
         case "chats":
@@ -272,12 +288,16 @@ struct AssistantCLI {
             do {
                 ownerHandles.formUnion(try await ContactsStoreSource().selfHandles())
             } catch {
-                print("Contacts Me card unavailable; using paired and manually verified self routes.")
+                if verbose { print("Contacts Me card unavailable; using verified self routes.") }
             }
             let selfChats = SelfChatRoutes.resolve(
                 primary: selectedChat, available: availableChats, ownerHandles: ownerHandles
             )
-            print("Owner routes: " + selfChats.map { String($0.id.rawValue) }.joined(separator: ", "))
+            let replyRoute = SelfChatRoutes.replyRoute(primary: selectedChat, verified: selfChats)
+            if verbose {
+                print("Owner routes: " + selfChats.map { String($0.id.rawValue) }.joined(separator: ", "))
+                print("All replies use chat \(replyRoute.id.rawValue).")
+            }
             let ledger = try OutboundLedger(fileURL: try stateURL("outbound-ledger.json"))
             let cursorStore = try CursorStore(fileURL: try stateURL("cursors.json"))
             let pendingChats = await ledger.pendingRecoveryChatIDs()
@@ -285,8 +305,7 @@ struct AssistantCLI {
                 // An uncertain outgoing send may have produced an echo. Keep the
                 // ledger hash for suppression, but never skip unseen incoming rows.
                 try await ledger.markRecovered(chatID: route.id)
-                print("Chat \(route.id.rawValue): earlier send outcome unknown; "
-                    + "catching up from the saved cursor without resending.")
+                if verbose { print("Chat \(route.id.rawValue): catching up without resending uncertain replies.") }
             }
             let databaseURL = try stateURL("assistant.sqlite")
             let store = try ObservationStore(fileURL: databaseURL)
@@ -301,25 +320,27 @@ struct AssistantCLI {
             if let identity = try MacPhoneIdentity.load() {
                 phoneSync = try PhoneSyncServer(identity: identity, store: store)
                 phoneSync?.start()
-                print("Paired phone sync listening on local HTTPS port \(identity.pairing.server.port ?? 8765).")
+                if verbose { print("Phone sync: local HTTPS port \(identity.pairing.server.port ?? 8765).") }
             } else { phoneSync = nil }
             defer { phoneSync?.stop() }
-            let controlTransport = PollingIMsgTransport(base: transport)
             let ownerRouteIDs = Set(selfChats.map(\.id))
+            let controlTransport = PollingIMsgTransport(base: transport,
+                replyChatID: replyRoute.id, ownerChatIDs: ownerRouteIDs)
             let inbox = try ConversationInbox(fileURL: try stateURL("conversation-inbox.json"))
             var readRoots: [URL] = []
             while let root = takeOption("--read-root", from: &arguments) {
                 readRoots.append(URL(fileURLWithPath: root, isDirectory: true))
             }
             let localReads = MacContextSource(allowedRoots: readRoots.isEmpty ? nil : MacContextSource.defaultRoots + readRoots)
+            let access = try SourceAccessRegistry(fileURL: try stateURL("source-access.json"))
             let contextSource = IndexedContextSource(
-                store: answerStore, mail: MailStoreSource(), additional: localReads
+                store: answerStore, mail: MailStoreSource(), additional: localReads, access: access
             )
             let conversation = provider.map { selected in ModelConversationService(
                 store: answerStore, provider: selected, transport: controlTransport,
                 ledger: ledger, chatID: chat, history: chatHistory, inbox: inbox,
                 mail: MailStoreSource(), contextSource: contextSource,
-                contextTools: ContextTool.allCases
+                contextTools: ContextTool.allCases, verbose: verbose, replyPrefix: "Assistant: "
             ) }
             let sessions: [ControlSession] = selfChats.map { route in
                 let service = EchoService(
@@ -329,14 +350,15 @@ struct AssistantCLI {
                     replyMessage: { message in
                         let answerQuestion: (@Sendable (String) async throws -> String?)?
                         if let conversation {
-                            let key = "\(route.id.rawValue):"
-                                + (message.guid.isEmpty ? "row:\(message.cursor.rawValue)" : message.guid)
+                            let key = message.guid.isEmpty
+                                ? "\(route.id.rawValue):row:\(message.cursor.rawValue)" : "guid:\(message.guid)"
                             answerQuestion = { question in
                                 try await conversation.begin(question: question, to: route.id, sourceID: key)
                             }
                         } else { answerQuestion = nil }
-                        let handler = ControlCommandHandler(store: commandStore, inbox: inbox, answerQuestion: answerQuestion)
-                        return try await handler.response(to: message.text)
+                        let handler = ControlCommandHandler(store: commandStore, inbox: inbox,
+                            access: access, answerQuestion: answerQuestion)
+                        return try await handler.response(to: message.text).map { "Assistant: " + $0 }
                     },
                     checkpointAfterReply: true,
                     onReconnect: { attempt, delay, detail in
@@ -344,24 +366,22 @@ struct AssistantCLI {
                             + "retrying in \(Int(delay))s (attempt \(attempt))")
                     },
                     onProgress: { cursor, detail in
-                        guard ProcessInfo.processInfo.environment["ASSISTANT_DEBUG"] == "1" else { return }
+                        guard verbose else { return }
                         print("chat \(route.id.rawValue) row \(cursor.rawValue): \(detail)")
                     },
                     echoChatIDs: ownerRouteIDs
                 )
                 return ControlSession(chatID: route.id, service: service, conversation: conversation)
             }
-            print("Serving owner commands. Press Control-C to stop.")
-            print("Apple Mail: read on email requests; allow Automation > Mail when prompted. Slow answers show progress feedback.")
-            print("Local reads: indexed personal sources, Mail, Notes, Reminders and permitted documents. The model chooses bounded read requests; access errors are reported.")
-            print("Automatic refresh: Messages every 60s; Calendar/Contacts every 15m. Send /status, /pause or /resume.")
+            print("Ready. Text your Messages self-chat from your iPhone.")
+            print("/status shows source access. Control-C stops the assistant.")
+            if verbose { print("Refresh: Messages every minute; Calendar and Contacts every 15 minutes.") }
             if model != nil {
                 let work = await inbox.counts()
-                print("Ready: text the assistant naturally in your verified Messages self-chat.")
-                print("Conversation inbox: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.")
+                if verbose { print("Replies: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.") }
                 await conversation?.resumePending()
             }
-            if selfChats.count == 1 {
+            if selfChats.count == 1 && verbose {
                 print("Only one route found. If your self-chat also uses another phone or email, "
                     + "add it with assistantctl add-self-handle --address <your address>.")
             }
@@ -370,18 +390,20 @@ struct AssistantCLI {
                 contacts: ContactsStoreSource(), store: store,
                 controlChatIDs: Set(selfChats.map(\.id))
             )
-            let reminders = ProactiveReminderService(store: store, transport: controlTransport, ledger: ledger)
+            let reminders = ProactiveReminderService(store: store, transport: controlTransport,
+                ledger: ledger, replyPrefix: "Assistant: ")
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for session in sessions {
                         let resumeCursor = await cursorStore.cursor(for: session.chatID)
-                        if let resumeCursor {
+                        if let resumeCursor, verbose {
                             print("Chat \(session.chatID.rawValue) resumes after row \(resumeCursor.rawValue).")
                         }
                         group.addTask {
                             for try await event in session.service.events(
                                 chatID: session.chatID, after: resumeCursor
                             ) {
+                                if !verbose && (event.sendOutcome == .notAttempted || event.sendOutcome == .confirmed) { continue }
                                 switch event.decision {
                                 case .accept:
                                     switch event.sendOutcome {
@@ -407,11 +429,17 @@ struct AssistantCLI {
                         }
                     }
                     group.addTask {
+                        var unavailableSources = Set<ObservationSource>()
                         while !Task.isCancelled {
                             let report = try await refresh.refresh()
-                            for source in report.failures {
+                            let failed = Set(report.failures)
+                            for source in failed.subtracting(unavailableSources) {
                                 print("\(source.rawValue) refresh unavailable; check permission/access. Commands remain available.")
                             }
+                            // Calendar/Contacts are checked less often than Messages.
+                            // Avoid repeating warnings during the same outage.
+                            unavailableSources.formUnion(failed)
+                            if report.messagesReady { unavailableSources.remove(.messages) }
                             if report.messagesReady {
                                 do {
                                     if try await reminders.tick(chatID: chat) {
@@ -487,8 +515,14 @@ struct AssistantCLI {
 
         case "index-mail":
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
-            let count = try await MailIngestor(source: MailStoreSource(), store: store).run()
-            print("Read \(count) Apple Mail Inbox snippets locally. Attachments and other folders are not included.")
+            let query = takeOption("--query", from: &arguments)
+            let rawOffset = takeOption("--offset", from: &arguments) ?? "0"
+            guard let offset = Int(rawOffset), (0...100_000).contains(offset) else {
+                throw CLIError("Mail page offset must be between 0 and 100000.")
+            }
+            let snapshot = try await MailIngestor(source: MailStoreSource(), store: store)
+                .refresh(query: query, offset: offset)
+            for limitation in snapshot.coverageLimitations { print(limitation) }
 
         case "index-contacts":
             let store = try ObservationStore(fileURL: try stateURL("assistant.sqlite"))
@@ -657,6 +691,12 @@ struct AssistantCLI {
         return value
     }
 
+    private static func takeFlag(_ name: String, from arguments: inout [String]) -> Bool {
+        guard let index = arguments.firstIndex(of: name) else { return false }
+        arguments.remove(at: index)
+        return true
+    }
+
     private static func stateURL(_ filename: String) throws -> URL {
         let root = try FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -678,6 +718,7 @@ struct AssistantCLI {
     private static func printUsage() {
         print("""
         Usage:
+          Add --quiet to setup checks or --verbose for diagnostic output.
           assistantctl doctor [--imsg <path>]
           assistantctl chats [--imsg <path>]
           assistantctl pair-chat [--imsg <path>]
@@ -697,7 +738,7 @@ struct AssistantCLI {
           assistantctl index-messages --control-chat-id <id> [--imsg <path>]
           assistantctl index-calendar
           assistantctl index-contacts
-          assistantctl index-mail
+          assistantctl index-mail [--query <sender/topic/folder/date>] [--offset <page offset>]
           assistantctl source-status
           assistantctl meeting-context --person <exact name, nickname, phone, or email>
           assistantctl index-commitments [--days <1...365>]

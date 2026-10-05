@@ -17,6 +17,8 @@ public actor ModelConversationService {
     private let contextSource: (any ReadContextSource)?
     private let contextTools: [ContextTool]
     private var stopping = false
+    private let verbose: Bool
+    private let replyPrefix: String
 
     public init(
         store: ObservationStore, provider: any LocalModelProvider,
@@ -25,7 +27,7 @@ public actor ModelConversationService {
         inbox: ConversationInbox? = nil, mail: (any MailSource)? = nil,
         progressDelay: Duration = .seconds(2),
         contextSource: (any ReadContextSource)? = nil,
-        contextTools: [ContextTool] = []
+        contextTools: [ContextTool] = [], verbose: Bool = false, replyPrefix: String = ""
     ) {
         self.store = store
         self.provider = provider
@@ -38,12 +40,14 @@ public actor ModelConversationService {
         self.progressDelay = progressDelay
         self.contextSource = contextSource
         self.contextTools = contextTools
+        self.verbose = verbose
+        self.replyPrefix = replyPrefix
     }
 
     /// A nil response means the turn is durably queued; slow turns may get progress feedback.
     public func begin(question: String, to chatID: TransportChatID? = nil, sourceID: String? = nil) async throws -> String? {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              question.utf8.count <= 512 else { return "Send a message of at most 512 bytes." }
+              question.utf8.count <= 4_096 else { return "That message is too long. Please split it into shorter texts (up to 4 KB each)." }
         let id = sourceID ?? UUID().uuidString
         switch try await inbox.enqueue(id: id, question: question, chatID: chatID ?? defaultChatID) {
         case .accepted, .duplicate:
@@ -93,7 +97,7 @@ public actor ModelConversationService {
         let needsMail = query.map(ConversationContextRouter.requestsMail) ?? false
         let progress = ConversationProgress(
             transport: transport, ledger: ledger, chatID: chatID,
-            text: needsMail ? "I'm checking Apple Mail on your Mac…" : "I'm working on that…",
+            text: replyPrefix + (needsMail ? "I'm checking Apple Mail on your Mac…" : "I'm working on that…"),
             delay: progressDelay
         )
         await progress.start()
@@ -107,7 +111,7 @@ public actor ModelConversationService {
                         "Each read reports coverage and access errors. Available tools describe host capabilities, not proof of complete access. These reads cannot send or modify source data."
                     ]
                 ).reply(message: message, history: await history.recent())
-                for entry in answer.trace {
+                for entry in answer.trace where verbose {
                     print("local context \(entry.stage) \(entry.tool?.rawValue ?? "model"): \(entry.elapsedMilliseconds)ms; \(entry.outcome)")
                 }
                 reply = answer.reply.text
@@ -126,7 +130,7 @@ public actor ModelConversationService {
                 request = EvidenceRequest(question: message, records: [], coverage: [])
             }
             let retrievedAt = Date()
-            print("local retrieval prepared in \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records")
+            if verbose { print("local retrieval: \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records") }
             let chat = ChatRequest(
                 message: message, history: await history.recent(),
                 records: request.records,
@@ -135,7 +139,7 @@ public actor ModelConversationService {
             try chat.validate()
             reply = try await provider.chat(chat).text
             try Task.checkCancellation()
-            print("local model generated in \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms")
+            if verbose { print("local model: \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms") }
             }
         } catch is CancellationError {
             await progress.stop()
@@ -147,34 +151,47 @@ public actor ModelConversationService {
         }
         await progress.stop()
         if Task.isCancelled { return }
-        print("local answer prepared in \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)")
-        let outbound = OutboundTransportMessage(text: reply)
+        if verbose { print("local answer: \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)") }
+        let outbound = OutboundTransportMessage(text: replyPrefix + reply)
         do {
             try await ledger.begin(requestID: outbound.requestID, chatID: chatID, text: outbound.text)
             // Persist the uncertain-send boundary before calling Messages.
             try await inbox.mark(turn.id, as: .sending)
         } catch {
             try? await ledger.cancel(requestID: outbound.requestID)
+            try? await inbox.mark(turn.id, as: .failed)
             print("chat \(chatID.rawValue): could not persist send intent; no send attempted")
             return
         }
+        let receipt: SendReceipt
         do {
             // Recipient is fixed by verified host configuration, never model output.
-            let receipt = try await transport.send(outbound, to: chatID)
-            try await ledger.confirm(requestID: outbound.requestID, messageGUID: receipt.messageGUID)
-            try await inbox.mark(turn.id, as: .submitted)
-            try await history.append(user: message, assistant: reply)
-            print("local answer submitted (not a delivery confirmation)")
+            receipt = try await transport.send(outbound, to: chatID)
         } catch let failure as TransportFailure where failure.retrySafe {
             try? await ledger.cancel(requestID: outbound.requestID)
             try? await inbox.mark(turn.id, as: .failed)
             print("chat \(chatID.rawValue): local answer send did not start")
+            return
         } catch {
             try? await ledger.markRecovered(requestID: outbound.requestID)
             try? await inbox.mark(turn.id, as: .uncertain)
             // The reply may be visible on the phone even when confirmation times out.
-            try? await history.append(user: message, assistant: reply)
+            try? await history.append(user: message, assistant: reply, sourceID: turn.id)
             print("chat \(chatID.rawValue): local answer send outcome unknown; no automatic resend")
+            return
+        }
+        // The transport already accepted the send. A local persistence failure
+        // cannot turn it into a failed send or cause a second transcript append.
+        do { try await ledger.confirm(requestID: outbound.requestID, messageGUID: receipt.messageGUID) }
+        catch { print("Reply submitted; its confirmation could not be saved locally.") }
+        do { try await inbox.mark(turn.id, as: .submitted) }
+        catch { print("Reply submitted; its queue state could not be saved locally. It will not be resent.") }
+        do { try await history.append(user: message, assistant: reply, sourceID: turn.id) }
+        catch { print("Reply submitted; conversation history could not be saved locally.") }
+        if verbose {
+            print("local answer submitted (not a delivery confirmation)")
+        } else {
+            print("Reply submitted (\(String(format: "%.1f", Date().timeIntervalSince(started)))s).")
         }
     }
 

@@ -60,3 +60,4 @@ public struct ObservationSearchHit: Equatable, Sendable {
         self.rank = rank
     }
 }
+

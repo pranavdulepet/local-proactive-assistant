@@ -77,12 +77,18 @@ public actor LoopbackModelProvider: LocalModelProvider {
             Local inference does not prevent reading email through the host's Mail adapter.
             If personal evidence is missing, say what is missing for this request; do not
             claim an entire service is inaccessible when coverage says it is connected.
-            Use plain text for Messages, without Markdown bold or tables. Keep replies brief.
+            contextReads are host receipts: only describe checks actually recorded as read
+            or empty. A failed read is not a successful check. Never diagnose a permission
+            problem unless that exact cause was reported by the host. An owner's "Done"
+            does not prove a setting changed. Records are sampled; do not claim an exhaustive
+            inbox, laptop, or calendar search. Do not offer unsupported procedures as tasks
+            you have performed. Use plain short paragraphs for Messages, without Markdown
+            headings, bold, tables or decorative bullet lists. Keep replies brief.
             """,
             user: try Self.json(request), temperature: 0.3
         )
         let reply = ChatReply(text: content.trimmingCharacters(in: .whitespacesAndNewlines))
-        try reply.validate()
+        try reply.validate(for: request)
         return reply
     }
 
@@ -90,8 +96,8 @@ public actor LoopbackModelProvider: LocalModelProvider {
         try request.validate()
         guard request.remainingCalls > 0, !request.availableTools.isEmpty else { return ContextPlan(calls: []) }
         let schema: [String: Any] = [
-            "type": "object", "additionalProperties": false, "required": ["calls"],
-            "properties": ["calls": [
+            "type": "object", "additionalProperties": false, "required": ["calls", "reply"],
+            "properties": ["reply": ["type": ["string", "null"], "maxLength": 2_048], "calls": [
                 "type": "array", "maxItems": request.remainingCalls,
                 "items": [
                     "type": "object", "additionalProperties": false,

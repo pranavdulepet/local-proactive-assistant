@@ -3,6 +3,101 @@
 assistant_support_dir="$HOME/Library/Application Support/LocalProactiveAssistant"
 assistant_profile="$assistant_support_dir/model-profile.txt"
 
+assistant_verbose() {
+    [[ "${ASSISTANT_VERBOSE:-0}" == 1 || "${ASSISTANT_DEBUG:-0}" == 1 ]]
+}
+
+assistant_start_session() {
+    umask 077
+    mkdir -p "$assistant_support_dir/Logs"
+    chmod 700 "$assistant_support_dir" "$assistant_support_dir/Logs"
+    if [[ "${ASSISTANT_STARTUP_LOG:-}" != "$assistant_support_dir/Logs/"* \
+        || ! -f "${ASSISTANT_STARTUP_LOG:-}" || -L "${ASSISTANT_STARTUP_LOG:-}" ]]; then
+        ASSISTANT_STARTUP_LOG="$(mktemp "$assistant_support_dir/Logs/startup.XXXXXX")"
+        export ASSISTANT_STARTUP_LOG
+    fi
+    if [[ "${ASSISTANT_STARTUP_BANNER:-0}" != 1 ]]; then
+        printf 'Local assistant\n'
+        export ASSISTANT_STARTUP_BANNER=1
+    fi
+}
+
+assistant_stage() { printf '%s\n' "$1"; }
+
+assistant_capture() {
+    # Capture successful setup chatter; failures keep the actual diagnostic and log path.
+    local task_log task_status=0
+    task_log="$(mktemp "$assistant_support_dir/Logs/task.XXXXXX")"
+    if assistant_verbose; then
+        "$@" 2>&1 | tee "$task_log" || task_status=$?
+    else
+        "$@" >"$task_log" 2>&1 || task_status=$?
+    fi
+    cat "$task_log" >> "$ASSISTANT_STARTUP_LOG"
+    if [[ "$task_status" -ne 0 ]] && ! assistant_verbose; then
+        tail -n 12 "$task_log" >&2
+    fi
+    rm -f "$task_log"
+    return "$task_status"
+}
+
+assistant_log_hint() { printf 'Details: %s\n' "$ASSISTANT_STARTUP_LOG" >&2; }
+
+assistant_install_owned_ollama() {
+    local runtime="$assistant_support_dir/Runtime/Ollama.app"
+    local staging=""
+    if [[ -L "$runtime" || ( -e "$runtime" && ! -d "$runtime" ) ]]; then
+        echo "The assistant's Ollama runtime path is not an application folder. Move it aside before installing." >&2
+        return 1
+    fi
+    mkdir -p "$assistant_support_dir/Runtime"
+    chmod 700 "$assistant_support_dir/Runtime"
+    staging="$(mktemp -d "$assistant_support_dir/Runtime/.ollama-download.XXXXXX")"
+    assistant_install_staging="$staging"
+    assistant_stage 'Installing Ollama...'
+    if ! assistant_capture curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --show-error --location \
+        https://ollama.com/download/Ollama-darwin.zip -o "$staging/Ollama.zip" \
+        || ! assistant_capture ditto -x -k "$staging/Ollama.zip" "$staging" \
+        || [[ -L "$staging/Ollama.app" || ! -x "$staging/Ollama.app/Contents/Resources/ollama" ]] \
+        || ! assistant_capture codesign --verify --deep --strict "$staging/Ollama.app" \
+        || ! assistant_capture spctl --assess --type execute "$staging/Ollama.app"; then
+        rm -rf "$staging"
+        assistant_install_staging=""
+        echo "Ollama could not be installed or verified. Install it from https://ollama.com/download and rerun." >&2
+        assistant_log_hint
+        return 1
+    fi
+    if [[ -d "$runtime" ]] && ! mv "$runtime" "$staging/previous.app"; then
+        rm -rf "$staging"
+        assistant_install_staging=""
+        echo "The existing Ollama runtime could not be replaced; it has been kept." >&2
+        return 1
+    fi
+    if ! mv "$staging/Ollama.app" "$runtime"; then
+        if [[ -d "$staging/previous.app" ]] && ! mv "$staging/previous.app" "$runtime"; then
+            # Preserve the backup if a filesystem failure also prevents restoration.
+            assistant_install_staging=""
+            echo "Ollama installation stopped. The previous runtime is saved at $staging/previous.app." >&2
+            return 1
+        fi
+        rm -rf "$staging"
+        assistant_install_staging=""
+        echo "Ollama installation stopped. The previous runtime has been restored." >&2
+        return 1
+    fi
+    rm -rf "$staging"
+    assistant_install_staging=""
+}
+
+assistant_model_label() {
+    case "$model_choice" in
+        apple) printf '%s\n' 'Apple on-device model' ;;
+        ollama|local)
+            if assistant_valid_model_name "$model_name"; then printf '%s\n' "$model_name"
+            else printf '%s\n' 'unconfigured local model'; fi ;;
+    esac
+}
+
 assistant_require_mac() {
     if [[ "$(uname -s)" != Darwin ]]; then
         echo "This assistant runs on a Mac signed into Messages.app." >&2
@@ -30,17 +125,26 @@ assistant_find_brew() {
 
 assistant_install_brew() {
     if assistant_find_brew; then return 0; fi
+    if [[ ! -t 0 && "${NONINTERACTIVE:-0}" != 1 ]]; then
+        echo "Homebrew is needed for the Messages helper. Run this starter in Terminal to install it." >&2
+        return 1
+    fi
     echo "Installing Homebrew, the supported installer for the Messages helper."
     echo "Homebrew may ask for your Mac password and its installation confirmation."
     local installer install_status=0
     installer="$(mktemp "${TMPDIR:-/tmp}/local-assistant-homebrew.XXXXXX")"
-    if ! curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+    if ! assistant_capture curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --show-error --location \
         https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$installer"; then
         rm -f "$installer"
         echo "Homebrew download failed. Check your connection and rerun this starter." >&2
         return 1
     fi
-    /bin/bash "$installer" || install_status=$?
+    # Homebrew's own interactive confirmation/password prompts must remain visible.
+    if [[ -t 0 ]]; then
+        /bin/bash "$installer" || install_status=$?
+    else
+        assistant_capture /bin/bash "$installer" || install_status=$?
+    fi
     rm -f "$installer"
     if [[ "$install_status" -ne 0 ]] || ! assistant_find_brew; then
         echo "Finish Homebrew installation at https://brew.sh, then rerun this starter." >&2
@@ -79,7 +183,11 @@ assistant_require_prerequisites() {
     assistant_require_swift || return 1
     if ! command -v imsg >/dev/null 2>&1; then
         assistant_install_brew || return 1
-        brew install steipete/tap/imsg || return 1
+        assistant_stage 'Installing Messages support...'
+        if ! assistant_capture brew install steipete/tap/imsg; then
+            assistant_log_hint
+            return 1
+        fi
     fi
 }
 
@@ -111,11 +219,12 @@ assistant_valid_endpoint() {
 }
 
 assistant_valid_model_name() {
-    [[ -n "$1" && ${#1} -le 200 && "$1" != *$'\n'* && "$1" != *$'\r'* && "$1" != *:cloud* && "$1" != *-cloud* ]]
+    [[ -n "$1" && ${#1} -le 200 && "$1" != *[$'\001'-$'\037'$'\177']* && "$1" != *:cloud* && "$1" != *-cloud* ]]
 }
 
 assistant_load_profile() {
-    [[ -s "$assistant_profile" ]] || return 1
+    [[ -f "$assistant_profile" && ! -L "$assistant_profile" && -s "$assistant_profile" ]] || return 1
+    [[ "$(wc -c < "$assistant_profile")" -le 4096 ]] || return 1
     local version extra
     {
         IFS= read -r version || return 1
@@ -134,25 +243,53 @@ assistant_load_profile() {
 }
 
 assistant_save_profile() {
+    if [[ -L "$assistant_profile" || ( -e "$assistant_profile" && ! -f "$assistant_profile" ) ]]; then
+        echo "The model settings path is not a regular file. Move it aside before choosing a model." >&2
+        return 1
+    fi
     mkdir -p "$assistant_support_dir"
     chmod 700 "$assistant_support_dir"
     local staging
     staging="$(mktemp "$assistant_support_dir/.model-profile.XXXXXX")"
     printf '1\n%s\n%s\n%s\n' "$model_choice" "$model_name" "$model_url" > "$staging"
     chmod 600 "$staging"
-    mv "$staging" "$assistant_profile"
+    if ! mv "$staging" "$assistant_profile"; then
+        rm -f "$staging"
+        echo "The model choice could not be saved. Check permissions for $assistant_support_dir." >&2
+        return 1
+    fi
+}
+
+assistant_mark_access_prepared() {
+    local marker="$assistant_support_dir/access-prepared-v2.txt" staging
+    if [[ -L "$marker" || ( -e "$marker" && ! -f "$marker" ) ]]; then
+        echo "Source access was granted, but the preparation marker could not be saved." >&2
+        return 1
+    fi
+    staging="$(mktemp "$assistant_support_dir/.access-prepared.XXXXXX")"
+    printf '2\n' > "$staging"
+    if ! mv "$staging" "$marker"; then
+        rm -f "$staging"
+        echo "Source access was granted, but its setup state could not be saved." >&2
+        return 1
+    fi
+}
+
+assistant_access_prepared() {
+    local marker="$assistant_support_dir/access-prepared-v2.txt"
+    [[ -f "$marker" && ! -L "$marker" && "$(wc -c < "$marker")" -eq 2 ]] || return 1
+    [[ "$(cat "$marker")" == 2 ]]
 }
 
 assistant_choose_model() {
     local suggested memory_gb selection
     suggested="$(assistant_suggest_model)"
     memory_gb=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
-    printf '\nTurn your number into a personal, local AI assistant.\n'
-    printf 'This Mac has %s GB of memory. Choose how it answers your texts:\n' "$memory_gb"
-    printf '  1. Ollama + %s (recommended; download once)\n' "$suggested"
-    printf '  2. Apple on-device model (no extra weights; Apple Intelligence and Xcode 26 required)\n'
-    printf '  3. Another Ollama model (paste an installed or downloadable local model tag)\n'
-    printf '  4. Your existing local model server (literal loopback endpoint)\n'
+    printf '\nChoose a model for this %s GB Mac:\n' "$memory_gb"
+    printf '  1. %s via Ollama (recommended)\n' "$suggested"
+    printf '  2. Apple on-device model\n'
+    printf '  3. Another local Ollama model\n'
+    printf '  4. A model already running on this Mac\n'
     if [[ ! -t 0 ]]; then
         echo "First-run model choice needs a terminal. Run interactively, or set ASSISTANT_MODEL explicitly." >&2
         return 1
@@ -184,5 +321,5 @@ assistant_choose_model() {
         esac
     done
     assistant_save_profile
-    echo "Saved your model choice. Change it with bash scripts/start.sh --choose-model."
+    echo "Model saved. Change it with bash scripts/start.sh --choose-model."
 }

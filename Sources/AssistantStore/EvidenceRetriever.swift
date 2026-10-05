@@ -103,18 +103,30 @@ public struct EvidenceRetriever: Sendable {
                 observations = try await store.search("\"\(name)\"", sources: [.contacts], limit: 8)
                     .map(\.observation)
             } else if !words.isDisjoint(with: ["message", "messages", "imessage", "sms", "text", "texts", "texted", "said", "say", "sent", "send", "told", "replied", "discussed", "decided", "agreed"]) {
-                let people: [ObservationSearchHit]
-                if let name = terms.last {
-                    people = try await store.search("\"\(name)\"", sources: [.contacts], limit: 8)
-                } else {
-                    people = []
+                var people: [UUID: Observation] = [:]
+                var nameTerms = Set<String>()
+                for term in terms {
+                    let hits = try await store.search("\"\(term)\"", sources: [.contacts], limit: 8)
+                    let named = hits.filter { hit in
+                        // A topic matching an organization/address field is not a person's name.
+                        let lines = hit.observation.text.split(separator: "\n")
+                        let names = ([lines.first.map(String.init) ?? ""]
+                            + lines.filter { $0.hasPrefix("Nickname:") }.map(String.init)).joined(separator: " ")
+                        return names.split { !$0.isLetter && !$0.isNumber }.contains { $0.lowercased() == term }
+                    }
+                    if !named.isEmpty { nameTerms.insert(term) }
+                    for hit in named { people[hit.observation.id] = hit.observation }
                 }
-                if people.count == 1, !people[0].observation.handles.isEmpty {
-                    observations = try await store.currentObservations(
-                        source: .messages,
-                        matchingAnyHandle: Set(people[0].observation.handles),
-                        limit: 8, newestFirst: true
-                    )
+                if people.count == 1, let person = people.values.first, !person.handles.isEmpty {
+                    let topics = terms.filter { !nameTerms.contains($0) }
+                    if topics.isEmpty {
+                        observations = try await store.currentObservations(source: .messages,
+                            matchingAnyHandle: Set(person.handles), limit: 8, newestFirst: true)
+                    } else {
+                        let topicQuery = topics.map { "\"\($0)\"" }.joined(separator: " AND ")
+                        observations = try await store.search(topicQuery, sources: [.messages],
+                            matchingAnyHandle: Set(person.handles), limit: 8).map(\.observation)
+                    }
                 } else {
                     observations = try await Self.search(store: store, terms: terms, sources: [.messages])
                 }

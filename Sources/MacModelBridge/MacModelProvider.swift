@@ -45,8 +45,9 @@ public actor MacModelProvider: LocalModelProvider {
         generating = true
         defer { generating = false }
         let response = try await exchange(ModelWireRequest(operation: .chat, chatRequest: request), timeout: 90)
+        if response.failureKind == "chatReply" { throw ChatReplyFailure(response.failure ?? "Invalid worker reply.") }
         guard let reply = response.chatReply else { throw LocalModelFailure(response.failure ?? "Missing worker conversation reply.") }
-        try reply.validate()
+        try reply.validate(for: request)
         return reply
     }
 
@@ -58,6 +59,7 @@ public actor MacModelProvider: LocalModelProvider {
         let response = try await exchange(
             ModelWireRequest(operation: .planContext, contextPlanRequest: request), timeout: 45
         )
+        if response.failureKind == "contextPlan" { throw ContextPlanFailure(response.failure ?? "Invalid worker context plan.") }
         guard let plan = response.contextPlan else {
             throw LocalModelFailure(response.failure ?? "Missing worker context plan.")
         }

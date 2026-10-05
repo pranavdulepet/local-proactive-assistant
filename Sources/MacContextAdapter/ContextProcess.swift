@@ -50,18 +50,28 @@ enum ContextProcess {
         }
         process.waitUntilExit()
         let data = output.value()
-        _ = errors.value()
+        let errorOutput = errors.value()
         switch child.reason {
         case .some(.cancelled): throw CancellationError()
-        case .some(.timeout): throw MacContextFailure("The local read exceeded its time limit.")
+        case .some(.timeout): throw MacContextFailure("The local read exceeded its time limit.", kind: .timedOut)
         case .some(.outputLimit): return Output(data: data, truncated: true)
         case .some(.finished), .none:
             guard process.terminationStatus == 0 else {
                 // Helper errors can contain private item text. Do not expose stderr.
-                throw MacContextFailure("The local application or file helper could not be read.")
+                let code = executable == "/usr/bin/osascript" ? Self.appleEventCode(errorOutput) : nil
+                throw MacContextFailure.helperFailure(code: code)
             }
             return Output(data: data, truncated: false)
         }
+    }
+
+    private static func appleEventCode(_ data: Data) -> Int? {
+        // Retain only a numeric Apple Event error, never its possibly private error text.
+        let text = String(decoding: data, as: UTF8.self)
+        guard let expression = try? NSRegularExpression(pattern: #"(?:\(|Error\s+|error number\s+)(-\d{3,5})(?:\)|:|\s|$)"#),
+              let match = expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return Int(text[range])
     }
 }
 
@@ -127,5 +137,31 @@ struct ContextCommandRunner: Sendable {
 
 public struct MacContextFailure: Error, CustomStringConvertible, Sendable {
     public let description: String
-    public init(_ description: String) { self.description = description }
+    public let kind: MacContextFailureKind
+    public let systemCode: Int?
+    public init(_ description: String, kind: MacContextFailureKind = .readFailed, systemCode: Int? = nil) {
+        self.description = description
+        self.kind = kind
+        self.systemCode = systemCode
+    }
+
+    static func helperFailure(code: Int?) -> Self {
+        switch code {
+        case -1743:
+            Self("Apple Events access was denied for this application.", kind: .permissionDenied, systemCode: code)
+        case -1744:
+            Self("Apple Events access has not been granted yet.", kind: .permissionRequired, systemCode: code)
+        case -1712:
+            Self("The application did not answer its Apple Event before the deadline.", kind: .timedOut, systemCode: code)
+        case -600, -609:
+            Self("The application could not be reached by Apple Events.", kind: .applicationUnavailable, systemCode: code)
+        default:
+            Self("The fixed local helper failed. This is not evidence of denied permission.", kind: .scriptingFailed, systemCode: code)
+        }
+    }
+}
+
+public enum MacContextFailureKind: String, Codable, Sendable {
+    case permissionRequired, permissionDenied, permissionRestricted
+    case timedOut, scriptingFailed, applicationUnavailable, invalidResponse, configurationMissing, readFailed
 }

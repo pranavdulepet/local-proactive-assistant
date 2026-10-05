@@ -2,6 +2,17 @@ import Testing
 @testable import AssistantCore
 
 struct SelfChatRoutesTests {
+    @Test func repliesPreferOneVerifiedPhoneRouteForBothAliases() {
+        func chat(_ id: Int64, _ address: String) -> TransportChat {
+            TransportChat(id: TransportChatID(rawValue: id), identifier: address, guid: "chat-\(id)",
+                displayName: address, service: "iMessage", participants: [address], isGroup: false)
+        }
+        let email = chat(955, "me@example.com")
+        let phone = chat(954, "+14155550123")
+        #expect(SelfChatRoutes.replyRoute(primary: email, verified: [phone, email]).id == phone.id)
+        #expect(SelfChatRoutes.replyRoute(primary: email, verified: [email]).id == email.id)
+    }
+
     @Test
     func includesOnlyDirectOwnerAliasesAndThePairedRoute() {
         func chat(_ id: Int64, _ address: String, service: String = "iMessage",

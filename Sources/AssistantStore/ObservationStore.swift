@@ -723,6 +723,7 @@ public actor ObservationStore {
     public func search(
         _ query: String,
         sources: Set<ObservationSource> = Set(ObservationSource.allCases),
+        matchingAnyHandle handles: Set<String> = [],
         limit: Int = 20
     ) throws -> [ObservationSearchHit] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -732,6 +733,9 @@ public actor ObservationStore {
         }
 
         let placeholders = Array(repeating: "?", count: sources.count).joined(separator: ", ")
+        let sortedHandles = handles.sorted()
+        let handlePlaceholders = Array(repeating: "?", count: handles.count).joined(separator: ", ")
+        let handleFilter = handles.isEmpty ? "" : "AND EXISTS (SELECT 1 FROM observation_handles oh WHERE oh.observation_id = o.id AND oh.handle IN (\(handlePlaceholders)))"
         let sql = """
         SELECT o.id, o.source, o.external_id, o.version_hash, o.source_revision,
                o.observed_at, o.source_timestamp, o.trust, o.text, o.locator,
@@ -742,6 +746,7 @@ public actor ObservationStore {
         WHERE observation_fts MATCH ?
           AND o.tombstone = 0
           AND o.source IN (\(placeholders))
+          \(handleFilter)
         ORDER BY rank
         LIMIT ?
         """
@@ -752,7 +757,12 @@ public actor ObservationStore {
         for (offset, source) in sources.sorted(by: { $0.rawValue < $1.rawValue }).enumerated() {
             try bind(source.rawValue, at: Int32(offset + 2), to: statement)
         }
-        try bind(Int64(limit), at: Int32(sources.count + 2), to: statement)
+        var index = Int32(sources.count + 2)
+        for handle in sortedHandles {
+            try bind(handle, at: index, to: statement)
+            index += 1
+        }
+        try bind(Int64(limit), at: index, to: statement)
 
         var hits: [ObservationSearchHit] = []
         while true {

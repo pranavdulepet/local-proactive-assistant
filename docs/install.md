@@ -33,20 +33,21 @@ The starter walks through these steps:
 5. Send the exact one-time `LOCAL-...` pairing code from your iPhone to your private
    one-to-one self-chat. Confirm the chat found on the Mac. Phone and email aliases are
    resolved by the host; you do not enter a numeric chat ID.
-6. Choose whether to connect Mail, Notes, and Reminders now. Allow the prompts on your Mac.
-   You may skip or deny a source and still chat; it remains unavailable until permission is
-   granted. The assistant also requests Calendar and Contacts access as it refreshes them.
+6. Choose whether to connect Mail, Notes, and Reminders now. Mail and Notes use macOS
+   Automation prompts; Reminders uses the normal Reminders permission dialog. You can
+   skip or deny a source and still chat. Calendar and Contacts request their own permissions.
 7. Leave the host running. The first reply may request Automation permission for Messages.
 
 Send `/status` to that same self-chat from your iPhone. Then ask naturally, for example:
 
 > What should I prepare for tomorrow, based on my calendar and recent emails?
 
-The host can make bounded read requests and refine its searches before answering. Each
-source has its own scope and permission. A sampled Inbox, indexed Messages window, or
-file search is not proof that every item on the Mac has been read. If access is missing or
-evidence is insufficient, the answer should say so. Reading local files is limited to
-permitted roots and supported formats. To add a local folder to a starter run:
+The host can search more than one source and refine a search before answering. Mail queries
+search locally synced account folders and return a bounded set of matches; they do not search
+only the first 100 messages. Attachments are not included, and a bounded query does not claim
+that every mailbox item has been scanned. Messages queries use the indexed history, and
+files use permitted folders and supported formats.
+The answer reports missing access or insufficient evidence. To add a local folder:
 
 ```bash
 ASSISTANT_READ_ROOT="$HOME/My Work" bash scripts/start.sh
@@ -56,10 +57,11 @@ The same setting works with the open-model starter. For multiple extra folders, 
 repeated `--read-root <folder>` arguments to `assistantctl serve` directly. macOS may ask
 for Documents, Desktop, or other folder permissions.
 
-Replies can appear blue or gray because the host sends through your own Messages account
-to your own self-chat. The host does not control bubble color. It shows native typing when
-the installed transport already supports it; otherwise a slow turn gets one short progress
-message. The ordinary setup does not require private Messages framework changes.
+Replies start with `Assistant:` and use one verified phone-number route. Messages controls
+whether they appear blue or gray because both sides use your account. Native typing is used
+when the existing transport supports it; otherwise a slow turn gets one short progress
+message. Setup does not require
+private Messages framework changes.
 
 ## Model choices
 
@@ -91,8 +93,10 @@ memory pressure. These recommendations are a starting point, not a conversationa
 `bash scripts/start-open-model.sh` remains a shortcut for the recommended Ollama model.
 Set `ASSISTANT_OPEN_MODEL=<local-tag>` to choose another; that choice is remembered too.
 The assistant owns a separate Ollama server at `127.0.0.1:11435` with cloud features disabled.
-It prints the executable and server version and retries a required runtime update once.
-It stops only the server it started, leaving other Ollama apps/services alone.
+It checks that the listener belongs to the process it started and retries a required runtime
+update once. It stops only that server, leaving other Ollama apps/services alone. A verified
+update is staged before replacing the private runtime; a failed replacement restores the
+previous installation.
 
 If Ollama is absent and Homebrew exists, it installs the Homebrew formula. Otherwise it
 downloads Ollama's official macOS app into the assistant's private runtime directory and
@@ -113,6 +117,21 @@ Later starts only need:
 bash scripts/start.sh
 ```
 
+Normal startup shows short stages for the model, build, and Messages access. Successful
+compiler and dependency output is saved in private setup logs. A failed step shows its
+diagnostic and the log path. For setup details and host diagnostics:
+
+```bash
+bash scripts/start.sh --verbose
+```
+
+`--verbose` also works with the open-model starter. `ASSISTANT_DEBUG=1` enables the same
+details plus transport debugging. It includes the actual Ollama executable and server
+version. An interactive terminal is required for the first model choice, chat pairing,
+and Homebrew installation. Saved setups can run without a terminal; use explicit model
+settings if there is no saved choice. Homebrew's official `NONINTERACTIVE=1` option is
+respected when deliberately set.
+
 Your pairing, model selection, transcript, and source state are saved under
 `~/Library/Application Support/LocalProactiveAssistant/`. The model profile is plain data,
 not shell code. The starter keeps an open Mac awake while serving; closing the lid can
@@ -126,10 +145,11 @@ If you skipped source preparation, run this on the Mac:
 ```
 
 That command probes read access without printing personal content. Grant Automation for
-Mail and Notes, and Reminders permission when requested. It writes no emails, notes, or
+Mail and Notes, and the normal Reminders permission when requested. It writes no emails, notes, or
 reminders. The guided starter remembers successful preparation; a failed or skipped setup
-does not mark access complete. `ASSISTANT_SKIP_ACCESS_SETUP=1 bash scripts/start.sh`
-skips this step for a run. `/status` reports what the host has actually synced.
+does not mark access complete. Upgrading from the earlier Reminders Automation integration
+prepares the new native Reminders permission once. `ASSISTANT_SKIP_ACCESS_SETUP=1 bash scripts/start.sh`
+skips this step for a run. `/status` reports source access and sync freshness.
 
 For phone-only data, pair the optional iPhone companion described in
 [local-models.md](local-models.md). The companion currently uses Apple's on-device model

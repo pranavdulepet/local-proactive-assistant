@@ -39,6 +39,9 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         after cursor: TransportCursor,
         limit: Int = 500
     ) async throws -> MessageHistoryPage {
+        guard (1...500).contains(limit), cursor.rawValue >= 0 else {
+            throw TransportFailure("Invalid history page bounds.", retrySafe: true)
+        }
         let result = try await rpc(
             method: "messages.after",
             params: [
@@ -56,6 +59,8 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
 
         let data = try JSONSerialization.data(withJSONObject: rawMessages)
         let messages = try JSONDecoder().decode([IMsgMessage].self, from: data)
+        try Self.validatePage(rows: messages.map(\.id), after: cursor.rawValue,
+            next: nextRowID, hasMore: hasMore, limit: limit)
         return MessageHistoryPage(
             messages: try messages.map { try $0.historyMessage },
             nextCursor: TransportCursor(rawValue: nextRowID),
@@ -269,11 +274,21 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         }
         let data = try JSONSerialization.data(withJSONObject: rawMessages)
         let messages = try JSONDecoder().decode([IMsgMessage].self, from: data)
+        try Self.validatePage(rows: messages.map(\.id), after: cursor.rawValue,
+            next: nextRowID, hasMore: hasMore, limit: 100)
         let inbound = try messages.map { try $0.transportMessage }
         guard inbound.allSatisfy({ $0.chatID == chatID }) else {
             throw TransportFailure("imsg returned a message from another chat.")
         }
         return (inbound, TransportCursor(rawValue: nextRowID), hasMore)
+    }
+
+    static func validatePage(rows: [Int64], after: Int64, next: Int64, hasMore: Bool, limit: Int) throws {
+        guard next >= after, !hasMore || next > after, rows.count <= limit,
+              rows.allSatisfy({ $0 > after && $0 <= next }),
+              zip(rows, rows.dropFirst()).allSatisfy({ $0 < $1 }) else {
+            throw TransportFailure("imsg returned an invalid history cursor or row order.")
+        }
     }
 
     public func send(
@@ -286,6 +301,8 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
                 "chat_id": chatID.rawValue,
                 "text": message.text,
                 "transport": "applescript",
+                "service": "imessage",
+                "allow_sms_fallback": false,
             ],
             // A status hint must not hold the final answer behind eight-second echo verification.
             timeout: message.isProgress ? 2 : 60
@@ -337,12 +354,7 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
             timeout: timeout
         )
 
-        guard let line = output.split(separator: 0x0A).first else {
-            throw TransportFailure("imsg returned no RPC response.")
-        }
-        guard let response = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else {
-            throw TransportFailure("imsg returned an invalid RPC response.")
-        }
+        let response = try Self.response(in: output, requestID: requestID)
 
         if let error = response["error"] as? [String: Any] {
             let message = error["message"] as? String ?? "Unknown imsg RPC error."
@@ -354,6 +366,21 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
             throw TransportFailure("imsg RPC response did not contain a result.")
         }
         return result
+    }
+
+    static func response(in output: Data, requestID: String) throws -> [String: Any] {
+        for line in output.split(separator: 0x0A) {
+            guard let response = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  response["jsonrpc"] as? String == "2.0" else {
+                throw TransportFailure("imsg returned an invalid RPC envelope.")
+            }
+            guard response["id"] as? String == requestID else { continue }
+            guard (response["result"] != nil) != (response["error"] != nil) else {
+                throw TransportFailure("imsg returned an ambiguous RPC response.")
+            }
+            return response
+        }
+        throw TransportFailure("imsg returned no matching RPC response.")
     }
 }
 
@@ -484,9 +511,14 @@ private struct IMsgMessage: Decodable {
 public actor PollingIMsgTransport: MessageTransport {
     private let base: IMsgTransport
     private var sendTail: Task<Void, Never>?
+    private let replyChatID: TransportChatID?
+    private let ownerChatIDs: Set<TransportChatID>
 
-    public init(base: IMsgTransport) {
+    public init(base: IMsgTransport, replyChatID: TransportChatID? = nil,
+                ownerChatIDs: Set<TransportChatID> = []) {
         self.base = base
+        self.replyChatID = replyChatID
+        self.ownerChatIDs = ownerChatIDs
     }
 
     public func probe() async -> TransportHealth { await base.probe() }
@@ -503,19 +535,29 @@ public actor PollingIMsgTransport: MessageTransport {
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
     ) async throws -> SendReceipt {
+        let destination = try replyDestination(for: chatID)
         // imsg's mutation lane is per RPC child. This shared actor serializes sends
         // across owner routes, model answers, and reminders even though each call
         // launches its own child.
         let previous = sendTail
         let operation = Task { () throws -> SendReceipt in
             if let previous { await previous.value }
-            return try await base.send(message, to: chatID)
+            return try await base.send(message, to: destination)
         }
         sendTail = Task { _ = try? await operation.value }
         return try await operation.value
     }
 
     public func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool {
-        await base.setTyping(typing, to: chatID)
+        guard let destination = try? replyDestination(for: chatID) else { return false }
+        return await base.setTyping(typing, to: destination)
+    }
+
+    func replyDestination(for requested: TransportChatID) throws -> TransportChatID {
+        guard let replyChatID else { return requested }
+        guard ownerChatIDs.contains(requested), ownerChatIDs.contains(replyChatID) else {
+            throw TransportFailure("The reply route is not a verified owner chat.", retrySafe: true)
+        }
+        return replyChatID
     }
 }

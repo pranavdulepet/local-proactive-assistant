@@ -154,3 +154,4 @@ public struct ContactsIngestor: Sendable {
         return lines.joined(separator: "\n")
     }
 }
+

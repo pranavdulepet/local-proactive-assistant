@@ -4,6 +4,42 @@ import Testing
 @testable import IMsgTransport
 
 struct IMsgTransportTests {
+    @Test func rpcMatchesTheRequestInsteadOfTheFirstOutputLine() throws {
+        let output = Data("""
+        {"jsonrpc":"2.0","method":"notification"}
+        {"jsonrpc":"2.0","id":"other","result":{"ok":true}}
+        {"jsonrpc":"2.0","id":"expected","result":{"ok":false}}
+        """.utf8)
+        let response = try IMsgTransport.response(in: output, requestID: "expected")
+        #expect((response["result"] as? [String: Bool])?["ok"] == false)
+        #expect(throws: TransportFailure.self) {
+            try IMsgTransport.response(in: output, requestID: "missing")
+        }
+        #expect(throws: TransportFailure.self) {
+            try IMsgTransport.response(in: Data(#"{"id":"expected","result":{"ok":true}}"#.utf8), requestID: "expected")
+        }
+    }
+
+    @Test func historyCannotSkipUnobservedRowsWithAnInvalidCursor() throws {
+        try IMsgTransport.validatePage(rows: [101, 105], after: 100, next: 110, hasMore: false, limit: 100)
+        for rows in [[101, 101], [105, 101], [99], [111]] {
+            #expect(throws: TransportFailure.self) {
+                try IMsgTransport.validatePage(rows: rows.map(Int64.init), after: 100, next: 110, hasMore: false, limit: 100)
+            }
+        }
+    }
+
+    @Test func answersAndTypingUseOneVerifiedRoute() async throws {
+        let phone = TransportChatID(rawValue: 954), email = TransportChatID(rawValue: 955)
+        let transport = PollingIMsgTransport(base: IMsgTransport(), replyChatID: phone,
+            ownerChatIDs: [phone, email])
+        #expect(try await transport.replyDestination(for: phone) == phone)
+        #expect(try await transport.replyDestination(for: email) == phone)
+        await #expect(throws: TransportFailure.self) {
+            _ = try await transport.replyDestination(for: TransportChatID(rawValue: 3))
+        }
+    }
+
     @Test func typingNeverActivatesAnUnavailableBridge() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -14,7 +50,8 @@ struct IMsgTransportTests {
         #!/bin/sh
         IFS= read -r request
         printf '%s\\n' "$request" >> "\(log.path)"
-        printf '%s\\n' '{"result":{"bridge":{"ready":false},"methods":["typing"]}}'
+        request_id=$(printf '%s\\n' "$request" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
+        printf '{"jsonrpc":"2.0","id":"%s","result":{"bridge":{"ready":false},"methods":["typing"]}}\\n' "$request_id"
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -35,7 +72,8 @@ struct IMsgTransportTests {
         #!/bin/sh
         IFS= read -r request
         printf '%s\\n' "$request" >> "\(log.path)"
-        printf '%s\\n' '{"result":{"ok":true,"bridge":{"ready":true},"methods":["typing"]}}'
+        request_id=$(printf '%s\\n' "$request" | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
+        printf '{"jsonrpc":"2.0","id":"%s","result":{"ok":true,"bridge":{"ready":true},"methods":["typing"]}}\\n' "$request_id"
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)

@@ -24,7 +24,7 @@ struct ModelWorker {
             var data = Data()
             while let chunk = try FileHandle.standardInput.read(upToCount: 4_096), !chunk.isEmpty {
                 data.append(chunk)
-                guard data.count <= 24_576 else { throw LocalModelFailure("Model request is too large.") }
+                guard data.count <= 49_152 else { throw LocalModelFailure("Model request is too large.") }
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -43,6 +43,10 @@ struct ModelWorker {
                 guard let request = message.contextPlanRequest else { throw LocalModelFailure("Missing context plan request.") }
                 response = ModelWireResponse(contextPlan: try await provider.planContext(request))
             }
+        } catch is ContextPlanFailure {
+            response = ModelWireResponse(failure: "The local worker returned an invalid context plan.", failureKind: "contextPlan")
+        } catch is ChatReplyFailure {
+            response = ModelWireResponse(failure: "The local worker returned an unverified conversation reply.", failureKind: "chatReply")
         } catch {
             // Never echo prompts/source records into diagnostics.
             response = ModelWireResponse(failure: "The local worker could not produce a validated response. Check model-status and retry with a smaller question.")

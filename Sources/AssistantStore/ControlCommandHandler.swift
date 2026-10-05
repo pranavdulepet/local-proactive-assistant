@@ -1,21 +1,25 @@
 import AssistantCore
 import Foundation
+import LocalInference
 
 public struct ControlCommandHandler: Sendable {
     private let store: ObservationStore
     private let clock: @Sendable () -> Date
     private let inbox: ConversationInbox?
+    private let access: SourceAccessRegistry?
     private let answerQuestion: (@Sendable (String) async throws -> String?)?
 
     public init(
         store: ObservationStore,
         clock: @escaping @Sendable () -> Date = Date.init,
         inbox: ConversationInbox? = nil,
+        access: SourceAccessRegistry? = nil,
         answerQuestion: (@Sendable (String) async throws -> String?)? = nil
     ) {
         self.store = store
         self.clock = clock
         self.inbox = inbox
+        self.access = access
         self.answerQuestion = answerQuestion
     }
 
@@ -23,6 +27,7 @@ public struct ControlCommandHandler: Sendable {
         guard let command = Command(text) else {
             let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !question.isEmpty else { return nil }
+            if let answerQuestion { return try await answerQuestion(question) }
             if let agenda = try await CalendarAgendaService(store: store, clock: clock).response(to: question) {
                 return agenda
             }
@@ -32,6 +37,7 @@ public struct ControlCommandHandler: Sendable {
 
         switch command {
         case .ask(let question):
+            if let answerQuestion { return try await answerQuestion(question) }
             if let agenda = try await CalendarAgendaService(store: store, clock: clock).response(to: question) {
                 return agenda
             }
@@ -67,6 +73,19 @@ public struct ControlCommandHandler: Sendable {
             if let inbox {
                 let work = await inbox.counts()
                 lines.append("Assistant replies: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.")
+            }
+            if let access {
+                lines.append("Local app access (last checked):")
+                let entries = await access.snapshot()
+                for tool in [ContextTool.mailInbox, .notes, .reminders] {
+                    if let entry = entries.first(where: { $0.tool == tool }) {
+                        lines.append("\(SourceAccessRegistry.name(tool)): \(entry.ready ? "readable" : "unavailable") at \(Self.timestamp(entry.checkedAt)).")
+                        if !entry.ready { lines.append(entry.detail) }
+                    } else {
+                        lines.append("\(SourceAccessRegistry.name(tool)): not checked.")
+                    }
+                }
+                lines.append("Documents: permitted folders only. Phone health requires the paired phone app. App access does not mean complete coverage.")
             }
             return lines.joined(separator: "\n")
         case .meeting(let person):
@@ -166,7 +185,7 @@ public struct ControlCommandHandler: Sendable {
     /ask <question> — ask the local model explicitly (ordinary texts also start a chat)
     /pause — stop unsolicited reminders
     /resume — enable the one-per-day due-commitment rule
-    /status — show proactive policy and Messages coverage
+    /status — show source access, reply queue and proactive policy
     /help — show these commands
     """
 }
