@@ -33,7 +33,7 @@ even when `imsg`'s watch notification is missed. Ordinary notes are ignored. If 
 reports an uncertain send, the host records that command and keeps listening; it will not
 send the same reply again automatically. Check your phone before texting the command again.
 
-Calendar, Contacts and Messages come from the Mac. `/forgetting`, `/why`, `/done`, `/meeting`,
+Calendar, Contacts, Messages and Apple Mail come from the Mac. `/forgetting`, `/why`, `/done`, `/meeting`,
 `/pause`, `/resume`, `/status` and `/help` remain deterministic. Questions do not enable proactive
 reminders; `/resume` enables the one-per-day rule. Keep the Mac awake and the process running.
 Rerun `bash scripts/start.sh` after a restart or update. Do not run two hosts at once.
@@ -70,6 +70,41 @@ if that server supports it. “OpenAI-compatible” is the API shape on your own
 does not require OpenAI or cloud credentials. A custom local server could itself forward
 requests elsewhere, so its configuration matters. If generation is unavailable, owner commands
 continue. `model-eval` and `check-model-worker.sh` are developer checks.
+
+## Read Apple Mail
+
+Ask naturally in Messages: `Check my emails`, `Summarize my unread emails`, or
+`Find email from Maya about the project`. The host reads Mail on these requests and supplies
+bounded evidence to the selected local model. At the first request, allow your terminal to
+control Mail in the macOS Automation prompt. Mail must have a configured account and synced
+Inbox. To trigger and check that grant from the Mac, run `.build/release/assistantctl index-mail`.
+
+This initial adapter samples up to 100 Inbox items in Mail's supplied order and stores plain
+body snippets of up to 2000 characters. It does not cover attachments, Sent, Archive, or all
+historical email. `/status` reports Mail coverage after a successful request. On permission,
+sync, or a 30-second timeout failure, the assistant reports the access problem instead of
+answering from stale Mail records. The model cannot send or modify email or mark it read.
+
+Running an LLM locally does not automatically give it access to every Mac app. The host needs
+a source adapter and the macOS grant for that source. Calendar and Contacts use their system
+APIs; Mail uses read-only Apple Events. Browser-only accounts and other apps need their own
+connectors. Personal evidence and inference stay on the Mac.
+
+## Progress and Messages appearance
+
+After two seconds of retrieval or generation, the host requests a native typing indicator
+only if an already-running `imsg` bridge is ready. It refreshes the indicator while working
+and stops it before sending the answer. This does not install or activate a bridge or change
+macOS security settings. Native typing uses private Messages APIs and is unreliable on stock
+macOS 26: https://imsg.sh/advanced-imcore.html.
+
+When native typing is unavailable, one short progress message appears instead. It has a short
+confirmation deadline so it does not hold the answer behind the usual eight-second self-chat
+echo check; an uncertain progress send is not retried. Fast replies add no progress message.
+All submissions use the verified route and echo ledger. Visible delivery still depends on
+Messages. Sending from your own Apple Account into your self-chat can produce blue or gray
+replies on the phone. A separate assistant identity is tracked in issue #28; bubble color
+cannot be forced by the response text.
 
 ## Pair the phone companion
 
@@ -128,7 +163,7 @@ on the Mac.
 This is a local-network phone connection. Away from the Mac's network, updates remain on the
 phone until it becomes reachable. A user-controlled VPN can provide reachability; there is no
 project cloud relay. Keep the Mac host running. A signed native Mac app/login-item lifecycle,
-optional location, Mail, and broader model-based extraction remain separate later work.
+optional location, broader Mail folder coverage, and model-based extraction remain later work.
 
 The backend contract remains replaceable behind `LocalModelProvider`; Apple's on-device model
 is the default Mac runtime and the current phone runtime. The optional Mac Ollama starter runs

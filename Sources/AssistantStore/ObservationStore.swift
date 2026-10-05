@@ -259,7 +259,8 @@ public actor ObservationStore {
         trust: ObservationTrust,
         from startDate: Date? = nil,
         to endDate: Date? = nil,
-        limit: Int = 100
+        limit: Int = 100,
+        newestFirst: Bool = false
     ) throws -> [Observation] {
         guard limit > 0 else { return [] }
         let statement = try prepare(
@@ -274,7 +275,7 @@ public actor ObservationStore {
               AND o.tombstone = 0
               AND (? IS NULL OR o.source_timestamp >= ?)
               AND (? IS NULL OR o.source_timestamp <= ?)
-            ORDER BY o.source_timestamp, o.external_id
+            ORDER BY o.source_timestamp \(newestFirst ? "DESC" : "ASC"), o.external_id
             LIMIT ?
             """
         )
