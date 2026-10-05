@@ -18,10 +18,10 @@ struct AppContextScriptsTests {
             }
             return {notes: function() { return items; }};
         }
-        function run() { return JSON.stringify(readNotes(fakeNotes(), 'maya')); }
+        function run(argv) { return JSON.stringify(readNotes(fakeNotes(), argv[0] || '')); }
         """#
         let output = try await ContextProcess.run(executable: "/usr/bin/osascript",
-            arguments: ["-l", "JavaScript", "-e", AppContextScripts.notes + fixture], timeout: 12)
+            arguments: ["-l", "JavaScript", "-e", AppContextScripts.notes + fixture, "--", "maya"], timeout: 12)
         let snapshot = try AppContextSnapshot.decode(output.data)
         #expect(snapshot.total == 220)
         #expect(snapshot.scanned == 200)
@@ -46,10 +46,10 @@ struct AppContextScriptsTests {
             return {reminders: function() { return [item('later', false, '2020-02-01T12:00:00Z'),
                 item('completed', true, '2020-01-01T12:00:00Z'), item('earlier', false, '2020-01-02T12:00:00Z')]; }};
         }
-        function run() { return JSON.stringify(readReminders(fakeReminders(), 'maya overdue')); }
+        function run(argv) { return JSON.stringify(readReminders(fakeReminders(), argv[0] || '')); }
         """#
         let output = try await ContextProcess.run(executable: "/usr/bin/osascript",
-            arguments: ["-l", "JavaScript", "-e", AppContextScripts.reminders + fixture], timeout: 12)
+            arguments: ["-l", "JavaScript", "-e", AppContextScripts.reminders + fixture, "--", "maya overdue"], timeout: 12)
         let snapshot = try AppContextSnapshot.decode(output.data)
         #expect(snapshot.scanned == 3)
         #expect(snapshot.items.map(\.id) == ["earlier", "later"])
