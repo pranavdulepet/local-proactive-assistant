@@ -8,8 +8,7 @@ struct MailStoreSourceTests {
     @Test func fixedJXAScriptReturnsBoundedReadOnlyInboxData() async throws {
         // Run real JavaScript for Automation with a fake Mail object, without Apple Events.
         let fixture = #"""
-        var Application = function(name) {
-            if (name !== 'Mail') throw new Error('Unexpected app');
+        function fakeMail() {
             var items = [];
             for (var i = 0; i < 120; i++) {
                 items.push({
@@ -22,10 +21,11 @@ struct MailStoreSourceTests {
                 });
             }
             return {accounts: function() { return [{}]; }, inbox: {messages: function() { return items; }}};
-        };
+        }
         """#
         let output = try await BoundedProcessRunner.run(
-            executable: "/usr/bin/osascript", arguments: ["-l", "JavaScript", "-e", fixture + MailStoreSource.script], timeout: 10
+            executable: "/usr/bin/osascript", arguments: ["-l", "JavaScript", "-e",
+                MailStoreSource.script + fixture + "\nfunction run() { return readMailInbox(fakeMail()); }"], timeout: 10
         )
         let snapshot = try MailStoreSource.decode(output)
         #expect(snapshot.totalInbox == 120)

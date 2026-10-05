@@ -43,9 +43,8 @@ public struct MailStoreSource: MailSource {
 
     // Mail supplies Inbox order; coverage deliberately does not call it a full or sorted export.
     static let script = #"""
-    function run() {
+    function readMailInbox(mail) {
         function bounded(value, count) { return Array.from(String(value || '')).slice(0, count).join(''); }
-        var mail = Application('Mail');
         if (mail.accounts().length === 0) throw new Error('No Mail accounts are configured');
         var inbox = mail.inbox.messages();
         var scanned = Math.min(inbox.length, 100);
@@ -66,5 +65,6 @@ public struct MailStoreSource: MailSource {
         }
         return JSON.stringify({messages: records, totalInbox: inbox.length, scanned: scanned, skipped: skipped});
     }
+    function run() { return readMailInbox(Application('Mail')); }
     """#
 }
