@@ -5,6 +5,30 @@ import Testing
 @testable import AssistantStore
 
 struct ModelConversationServiceTests {
+    @Test func transcriptFailureAfterASuccessfulSendDoesNotMakeDeliveryUncertain() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let blocked = directory.appendingPathComponent("blocked")
+        try Data("not a directory".utf8).write(to: blocked)
+        let history = try ConversationHistory(fileURL: blocked.appendingPathComponent("history.json"))
+        let inbox = ConversationInbox()
+        let transport = AnswerTransport()
+        let service = ModelConversationService(store: try ObservationStore(), provider: TestChatModel(),
+            transport: transport, ledger: try OutboundLedger(), chatID: TransportChatID(rawValue: 954),
+            history: history, inbox: inbox)
+        _ = try await service.begin(question: "Can you explain how a local model works?", sourceID: "one-turn")
+        _ = await transport.waitForSend()
+        for _ in 0..<50 {
+            if await inbox.counts().queued == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let counts = await inbox.counts()
+        #expect(counts.queued == 0 && counts.uncertain == 0 && counts.failed == 0)
+        #expect(await history.recent().isEmpty)
+        #expect(await transport.sendCount() == 1)
+    }
+
     @Test func conversationQueueUsesModelSelectedSourcesForParaphrasedRequests() async throws {
         let transport = AnswerTransport()
         let source = PlannedNotesFixture()
@@ -220,6 +244,7 @@ private actor WaitingModel: LocalModelProvider {
 }
 
 private actor AnswerTransport: MessageTransport {
+    func sendCount() -> Int { sent.count }
     private let unknownOutcome: Bool
     init(unknownOutcome: Bool = false) { self.unknownOutcome = unknownOutcome }
     private var sent: [(OutboundTransportMessage, TransportChatID)] = []
