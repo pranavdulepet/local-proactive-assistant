@@ -88,13 +88,17 @@ Ask naturally in Messages: `Check my emails`, `Summarize my unread emails`, or
 `Find email from Maya about the project`. The host reads Mail on these requests and supplies
 bounded evidence to the selected local model. During setup or at the first request, allow your terminal to
 control Mail in the macOS Automation prompt. Mail must have a configured account and synced
-Inbox. To trigger and check that grant from the Mac, run `.build/release/assistantctl index-mail`.
+mailboxes. To trigger and check that grant from the Mac, run `.build/release/assistantctl prepare-access`.
 
-This initial adapter samples up to 100 Inbox items in Mail's supplied order and stores plain
-body snippets of up to 2000 characters. It does not cover attachments, Sent, Archive, or all
-historical email. `/status` reports Mail coverage after a successful request. On permission,
-sync, or a 30-second timeout failure, the assistant reports the access problem instead of
-answering from stale Mail records. The model cannot send or modify email or mark it read.
+Mail filters queries before the result limit. Generic unread queries use Inbox; sender/topic,
+folder and ISO date queries can search exposed account/local folders, including Archive and
+Sent. Results are sorted pages of up to 100 messages with 2000-character body excerpts; a
+conversational turn supplies at most eight. Search limits, missing bodies and additional pages
+are reported. `/status` records the last access check. Errors distinguish permission denial,
+account setup, timeout and scripting failures. The model cannot send or modify email or mark
+it read. Attachments and unavailable mail remain outside coverage. The adapter supports page
+offsets through `index-mail --query <terms> --offset <number>`; conversation does not yet
+automatically walk every page.
 
 Running an LLM locally does not automatically give it access to every Mac app. The host needs
 a source adapter and the macOS grant for that source. Calendar and Contacts use their system
@@ -110,7 +114,9 @@ second pass, with at most three read calls. Follow-ups use the recent conversati
 answer uses returned evidence and its coverage; access failures remain visible to the model.
 
 Ask `Find my notes about the launch`, `What is due in Reminders?`, or `Find the project proposal
-and summarize it`. Notes and Reminders reads are bounded samples through fixed read-only scripts.
+and summarize it`. Notes uses fixed title/body searches with bounded excerpts. Reminders uses
+read-only EventKit predicates and a separate Reminders permission. See
+[access and coverage](read-access.md) for per-source limits.
 Locked items or denied Automation permissions stay unavailable. Source text cannot request shell
 commands, writes, other recipients or new folder grants.
 

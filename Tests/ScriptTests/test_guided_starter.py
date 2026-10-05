@@ -26,8 +26,15 @@ elif name == "xcode-select":
 elif name == "xcodebuild": print("Xcode " + os.environ.get("FIXTURE_XCODE", "26.0"))
 elif name == "swift":
     if args == ["--version"]: print("Apple Swift version " + os.environ.get("FIXTURE_SWIFT", "6.2"))
-    else: log("swift " + " ".join(args))
-elif name == "brew": log("brew " + " ".join(args))
+    else:
+        log("swift " + " ".join(args))
+        print("[18/18] COMPILER_BUILD_DETAIL")
+        if os.environ.get("FIXTURE_BUILD_FAILED"):
+            print("Compilation failed: missing symbol Example", file=sys.stderr)
+            sys.exit(2)
+elif name == "brew":
+    log("brew " + " ".join(args))
+    print("HOMEBREW_INSTALL_DETAIL")
 elif name == "open": log("open " + " ".join(args))
 elif name == "imsg": pass
 elif name == "caffeinate":
@@ -36,9 +43,19 @@ elif name == "caffeinate":
 elif name == "assistantctl":
     log("host " + " ".join(args))
     if args[0] == "serve": (root / "serve-args.json").write_text(json.dumps(args))
-    if args[0] == "doctor" and os.environ.get("FIXTURE_DENIED"): sys.exit(1)
+    if args[0] == "doctor" and os.environ.get("FIXTURE_DENIED"):
+        print("Messages: permission denied for chat.db", file=sys.stderr)
+        sys.exit(1)
+    if args[0] == "doctor" and os.environ.get("FIXTURE_RPC_FAILED"):
+        print("Messages: RPC process exited unexpectedly", file=sys.stderr)
+        sys.exit(1)
     if args[0] == "model-status" and os.environ.get("FIXTURE_MODEL_UNAVAILABLE"): sys.exit(1)
-    if args[0] == "prepare-access" and os.environ.get("FIXTURE_SOURCE_DENIED"): sys.exit(1)
+    if args[0] == "prepare-access" and os.environ.get("FIXTURE_SOURCE_DENIED"):
+        print("Mail: allow Automation > Mail for this terminal.", file=sys.stderr)
+        print("Reminders: allow Reminders in Privacy & Security.", file=sys.stderr)
+        sys.exit(1)
+    if args[0] in ("doctor", "model-status") and "--quiet" not in args:
+        print("RAW_STATUS_DETAIL")
     if args[0] == "pair-chat":
         config = Path(os.environ["HOME"]) / "Library/Application Support/LocalProactiveAssistant/control-chat-id.txt"
         config.parent.mkdir(parents=True, exist_ok=True)
@@ -72,7 +89,7 @@ class GuidedStarterTests(unittest.TestCase):
         target.chmod(0o755)
         self.env = dict(os.environ, FIXTURE_ROOT=str(self.root), HOME=str(self.root / "home"),
                         TMPDIR=str(self.root), PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"])
-        for name in ("ASSISTANT_MODEL", "ASSISTANT_MODEL_NAME", "ASSISTANT_MODEL_URL", "ASSISTANT_OPEN_MODEL", "DEVELOPER_DIR"):
+        for name in ("ASSISTANT_MODEL", "ASSISTANT_MODEL_NAME", "ASSISTANT_MODEL_URL", "ASSISTANT_OPEN_MODEL", "DEVELOPER_DIR", "ASSISTANT_STARTUP_LOG", "ASSISTANT_STARTUP_BANNER", "ASSISTANT_STARTUP_CHECKED", "ASSISTANT_STARTUP_MODEL_SHOWN", "ASSISTANT_DEBUG", "ASSISTANT_VERBOSE"):
             self.env.pop(name, None)
         self.profile = self.root / "home/Library/Application Support/LocalProactiveAssistant/model-profile.txt"
 
@@ -94,9 +111,10 @@ class GuidedStarterTests(unittest.TestCase):
         calls = (self.root / "calls").read_text() if (self.root / "calls").exists() else ""
         return result, calls
 
-    def write_profile(self, provider="apple", model="", url=""):
+    def write_profile(self, provider="apple", model="", url="", paired=True):
         self.profile.parent.mkdir(parents=True, exist_ok=True)
         self.profile.write_text(f"1\n{provider}\n{model}\n{url}\n")
+        if paired: self.profile.with_name("control-chat-id.txt").write_text("955\n")
 
     def test_first_run_recommends_memory_fit_and_remembers_choice(self):
         result, calls = self.run_start("\n")
@@ -109,7 +127,7 @@ class GuidedStarterTests(unittest.TestCase):
         self.assertNotIn("Choose how", result.stdout)
 
     def test_model_menu_can_switch_existing_choice(self):
-        self.write_profile("ollama", "qwen3.8:27b-q4_K_M")
+        self.write_profile("ollama", "qwen3.8:27b-q4_K_M", paired=False)
         result, calls = self.run_start("2\n", args=("--choose-model",))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.profile.read_text(), "1\napple\n\n\n")
@@ -152,13 +170,21 @@ class GuidedStarterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.repo / "SHOULD_NOT_EXIST").exists())
 
-    def test_denied_messages_access_opens_specific_settings(self):
+    def test_denied_messages_access_explains_settings_and_preserves_choice(self):
         self.write_profile()
         result, calls = self.run_start(FIXTURE_DENIED="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Privacy_AllFiles", calls)
+        self.assertIn("Full Disk Access", result.stderr)
         self.assertNotIn("host serve", calls)
         self.assertTrue(self.profile.exists())
+
+    def test_rpc_failure_does_not_open_permission_settings(self):
+        self.write_profile()
+        result, calls = self.run_start(FIXTURE_RPC_FAILED="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("RPC process exited unexpectedly", result.stderr)
+        self.assertNotIn("open ", calls)
+        self.assertNotIn("host serve", calls)
 
     def test_missing_developer_tools_requests_macos_install(self):
         result, calls = self.run_start(FIXTURE_NO_TOOLS="1")
@@ -191,8 +217,8 @@ class GuidedStarterTests(unittest.TestCase):
         result, calls = self.run_start()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("host prepare-access", calls)
-        marker = self.profile.with_name("access-prepared-v1.txt")
-        self.assertEqual(marker.read_text(), "1\n")
+        marker = self.profile.with_name("access-prepared-v2.txt")
+        self.assertEqual(marker.read_text(), "2\n")
         result, calls = self.run_start()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.count("host prepare-access"), 1)
@@ -202,7 +228,7 @@ class GuidedStarterTests(unittest.TestCase):
         result, calls = self.run_start(FIXTURE_SOURCE_DENIED="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("host serve", calls)
-        self.assertFalse(self.profile.with_name("access-prepared-v1.txt").exists())
+        self.assertFalse(self.profile.with_name("access-prepared-v2.txt").exists())
 
     def test_user_can_skip_source_setup_for_now(self):
         self.write_profile()
@@ -220,6 +246,101 @@ class GuidedStarterTests(unittest.TestCase):
         args = json.loads((self.root / "serve-args.json").read_text())
         self.assertEqual(args[-2:], ["--read-root", folder])
         self.assertFalse((self.repo / "SHOULD_NOT_EXIST").exists())
+
+    def test_normal_startup_has_stages_and_hides_successful_tool_chatter(self):
+        self.write_profile("local", "local-model", "http://127.0.0.1:1234/v1")
+        result, _ = self.run_start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Model: local-model", result.stdout)
+        self.assertIn("Preparing the assistant...", result.stdout)
+        self.assertIn("Checking Messages access...", result.stdout)
+        self.assertNotIn("COMPILER_BUILD_DETAIL", result.stdout)
+        self.assertNotIn("RAW_STATUS_DETAIL", result.stdout)
+        self.assertNotIn("Ready", result.stdout, "The CLI owns the readiness banner")
+        logs = list(self.profile.parent.glob("Logs/startup.*"))
+        self.assertEqual(len(logs), 1)
+        self.assertIn("COMPILER_BUILD_DETAIL", logs[0].read_text())
+        self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
+
+    def test_verbose_setup_keeps_diagnostics_visible(self):
+        self.write_profile("local", "local-model", "http://127.0.0.1:1234/v1")
+        result, calls = self.run_start(args=("--verbose",))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("COMPILER_BUILD_DETAIL", result.stdout)
+        self.assertIn("RAW_STATUS_DETAIL", result.stdout)
+        self.assertIn("host serve --model local", calls)
+        self.assertIn("--verbose", calls)
+
+    def test_failed_build_shows_real_diagnostic_and_log_location(self):
+        self.write_profile("local", "local-model", "http://127.0.0.1:1234/v1")
+        result, calls = self.run_start(FIXTURE_BUILD_FAILED="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Compilation failed: missing symbol Example", result.stderr)
+        self.assertIn("Details:", result.stderr)
+        self.assertNotIn("host serve", calls)
+
+    def test_optional_source_denial_keeps_actionable_details_without_fatal_banner(self):
+        self.write_profile()
+        result, calls = self.run_start(FIXTURE_SOURCE_DENIED="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Mail: allow Automation > Mail", result.stderr)
+        self.assertIn("Reminders: allow Reminders", result.stderr)
+        self.assertNotIn("error:", result.stderr)
+        self.assertIn("host serve", calls)
+
+    def test_noninteractive_unpaired_start_does_not_prompt_or_serve(self):
+        self.write_profile(paired=False)
+        result, calls = self.run_start()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pairing needs your confirmation", result.stderr)
+        self.assertNotIn("host pair-chat", calls)
+        self.assertNotIn("host serve", calls)
+
+    def test_profile_symlink_is_rejected_without_touching_target(self):
+        self.write_profile()
+        target = self.root / "external-profile"
+        target.write_text("1\napple\n\n\n")
+        self.profile.unlink()
+        self.profile.symlink_to(target)
+        result, calls = self.run_start()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("host serve", calls)
+        self.assertEqual(target.read_text(), "1\napple\n\n\n")
+
+    def test_terminal_control_characters_in_model_name_are_rejected(self):
+        result, calls = self.run_start(ASSISTANT_MODEL="local", ASSISTANT_MODEL_NAME="model\x1b[2J",
+                                       ASSISTANT_MODEL_URL="http://127.0.0.1:1234/v1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("\x1b", result.stdout + result.stderr)
+        self.assertNotIn("swift build", calls)
+
+    def test_oversized_profile_is_rejected_before_build(self):
+        self.write_profile()
+        self.profile.write_text("1\nlocal\n" + "m" * 5000 + "\nhttp://127.0.0.1:1234/v1\n")
+        result, calls = self.run_start()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("swift build", calls)
+
+    def test_source_marker_symlink_never_overwrites_target(self):
+        self.write_profile()
+        target = self.root / "empty-user-file"
+        target.touch()
+        marker = self.profile.with_name("access-prepared-v2.txt")
+        marker.symlink_to(target)
+        result, calls = self.run_start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("host prepare-access", calls)
+        self.assertIn("host serve", calls)
+        self.assertEqual(target.read_text(), "")
+        self.assertTrue(marker.is_symlink())
+
+    def test_old_automation_preparation_does_not_skip_native_reminders_permission(self):
+        self.write_profile()
+        self.profile.with_name("access-prepared-v1.txt").write_text("1\n")
+        result, calls = self.run_start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("host prepare-access", calls)
+        self.assertEqual(self.profile.with_name("access-prepared-v2.txt").read_text(), "2\n")
 
 
 if __name__ == "__main__":

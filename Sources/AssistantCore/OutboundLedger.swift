@@ -81,6 +81,7 @@ public actor OutboundLedger {
             expiresAt: sentAt.addingTimeInterval(ttl)
         )
         entries.append(entry)
+        prune(at: sentAt)
         try persist()
         return entry
     }
@@ -157,7 +158,10 @@ public actor OutboundLedger {
     }
 
     private func prune(at date: Date) {
-        entries.removeAll { $0.expiresAt < date }
+        // Saved cursors can replay an outgoing echo long after a restart. Keep
+        // its identity/hash for catchup; text matching still uses message time.
+        entries.removeAll { max($0.expiresAt, $0.sentAt.addingTimeInterval(30 * 86_400)) < date }
+        if entries.count > 4_096 { entries = Array(entries.suffix(4_096)) }
     }
 
     private func persist() throws {

@@ -98,7 +98,7 @@ public actor AppleSystemModelProvider: LocalModelProvider {
             let plan = ContextPlan(calls: response.content.calls.map { call in
                 ContextToolCall(tool: call.tool.contextTool,
                     query: call.query?.trimmingCharacters(in: .whitespacesAndNewlines), path: call.path)
-            })
+            }, reply: response.content.reply)
             try plan.validate(for: request)
             return plan
         }
@@ -130,7 +130,12 @@ public actor AppleSystemModelProvider: LocalModelProvider {
                 Read source capabilities and access status from coverage. The host can supply
                 personal information even though you have no action tools; local inference
                 does not itself prevent reading email. Missing records do not prove a source
-                is unsupported. Use plain text without Markdown bold or tables in Messages.
+                is unsupported. contextReads are host receipts: describe only reads recorded
+                as read or empty as successful checks; a failed read is not success. Do not
+                guess permissions or OS diagnoses unless the host reports that exact cause.
+                An owner's "Done" is not proof of changed access. Source records are sampled,
+                so never claim an exhaustive search of the inbox, calendar, or Mac. Use short
+                plain paragraphs without Markdown headings, bold, tables or decorative lists.
                 Never diagnose illness.
                 """)
             let encoder = JSONEncoder()
@@ -144,7 +149,7 @@ public actor AppleSystemModelProvider: LocalModelProvider {
             )
             try Task.checkCancellation()
             let reply = ChatReply(text: response.content.trimmingCharacters(in: .whitespacesAndNewlines))
-            try reply.validate()
+            try reply.validate(for: request)
             return reply
         }
         #endif
@@ -211,5 +216,7 @@ private struct GeneratedContextCall {
 private struct GeneratedContextPlan {
     @Guide(description: "At most remainingCalls read requests; empty when ready to reply from current context.", .count(0...3))
     var calls: [GeneratedContextCall]
+    @Guide(description: "Brief plain-text conversation reply only when no reads are needed or attempted; otherwise nil. No invented personal facts, access diagnoses or completed actions.")
+    var reply: String?
 }
 #endif

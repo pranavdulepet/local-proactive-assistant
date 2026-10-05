@@ -14,6 +14,8 @@
     <string>Read your calendar to build the local assistant index on this Mac.</string>
     <key>NSContactsUsageDescription</key>
     <string>Read your contacts to resolve message and meeting participants on this Mac.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Read your reminders to answer personal questions locally. The assistant does not modify reminders.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Read your local Mail, Notes and Reminders for personal questions, and send assistant replies to your verified Messages chat.</string>
 </dict>

@@ -5,16 +5,20 @@ import LocalInference
 public struct MacContextSource: ReadContextSource {
     private let files: FileContextReader
     private let runner: ContextCommandRunner
+    private let reminders: RemindersContextReader
 
     /// Additional roots must be chosen by the owner locally, never by a model tool call.
     /// A nil list uses the usual document folders and the locally available iCloud Drive.
-    public init(allowedRoots: [URL]? = nil) {
-        self.init(allowedRoots: allowedRoots ?? Self.defaultRoots, runner: .system)
+    public init(allowedRoots: [URL]? = nil, requestPermissions: Bool = false) {
+        self.init(allowedRoots: allowedRoots ?? Self.defaultRoots, runner: .system,
+                  reminderStore: EventKitReminderStore(), requestPermissions: requestPermissions)
     }
 
-    init(allowedRoots: [URL], runner: ContextCommandRunner) {
+    init(allowedRoots: [URL], runner: ContextCommandRunner,
+         reminderStore: any ReminderStore = EventKitReminderStore(), requestPermissions: Bool = false) {
         self.runner = runner
         files = FileContextReader(roots: allowedRoots, runner: runner)
+        reminders = RemindersContextReader(store: reminderStore, requestPermissions: requestPermissions)
     }
 
     public static var defaultRoots: [URL] {
@@ -33,13 +37,17 @@ public struct MacContextSource: ReadContextSource {
                 result = try await Self.offload { try await files.search(call.query!) }
             case .readFile:
                 result = try await Self.offload { try await files.read(call.path!) }
-            case .notes, .reminders:
-                let script = call.tool == .notes ? AppContextScripts.notes : AppContextScripts.reminders
-                let query = call.query.map { FileContextReader.searchTerms($0).joined(separator: " ") } ?? ""
+            case .notes:
+                let script = AppContextScripts.notes
+                let query = call.query.map { FileContextReader.searchTerms($0).filter {
+                    !["note", "notes", "check", "show", "list", "summarize"].contains($0)
+                }.joined(separator: " ") } ?? ""
                 let output = try await runner.run("/usr/bin/osascript",
                     ["-l", "JavaScript", "-e", script, "--", query], nil, 15, 262_144)
-                guard !output.truncated else { throw MacContextFailure("The application response exceeded its bounded output limit.") }
+                guard !output.truncated else { throw MacContextFailure("The application response exceeded its bounded output limit.", kind: .invalidResponse) }
                 result = try AppContextSnapshot.decode(output.data).result(source: call.tool.rawValue)
+            case .reminders:
+                result = try await reminders.read(query: call.query)
             case .deviceInfo:
                 result = await deviceInfo()
             case .searchIndex, .mailInbox:
@@ -48,19 +56,35 @@ public struct MacContextSource: ReadContextSource {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            let detail: String
-            if call.tool == .notes || call.tool == .reminders {
-                let app = call.tool == .notes ? "Notes" : "Reminders"
-                detail = "\(app) could not be read. Open \(app) with synced local items and allow the host terminal under macOS Privacy & Security > Automation > \(app). Locked or unavailable items may remain unreadable. Each read stops after 15 seconds."
-            } else if let failure = error as? MacContextFailure {
-                detail = failure.description
-            } else {
-                detail = "This local read could not complete. Check folder access and that the document is downloaded locally."
-            }
-            throw MacContextFailure(EvidenceText.bounded("\(call.tool.rawValue): \(detail)", bytes: 512))
+            let failure = error as? MacContextFailure
+                ?? MacContextFailure("This local read failed without a classified access error.")
+            let detail = call.tool == .notes ? Self.notesFailure(failure) : failure.description
+            throw MacContextFailure(EvidenceText.bounded("\(call.tool.rawValue): \(detail)", bytes: 512),
+                                    kind: failure.kind, systemCode: failure.systemCode)
         }
         try result.validate()
         return result
+    }
+
+    private static func notesFailure(_ failure: MacContextFailure) -> String {
+        switch failure.kind {
+        case .permissionDenied:
+            return "Notes Apple Events access was denied (\(failure.systemCode ?? -1743)). Allow the host terminal under macOS Privacy & Security > Automation > Notes if you want it connected."
+        case .permissionRequired:
+            return "Notes Apple Events access has not been granted. Run source setup on the Mac to choose access."
+        case .timedOut:
+            return "Notes did not finish its read before the deadline. No permission denial was reported. Open Notes and check whether it is responding, then retry."
+        case .scriptingFailed:
+            return "The fixed Notes scripting API failed\(failure.systemCode.map { " (Apple Event code \($0))" } ?? ""). This does not establish denied permission; update the host and check Notes is responding."
+        case .applicationUnavailable:
+            return "Notes could not be reached through Apple Events. Open Notes on this Mac and retry."
+        case .invalidResponse:
+            return "Notes returned invalid or oversized data from the fixed script. The source was not marked connected."
+        case .permissionRestricted:
+            return "Notes access is restricted by macOS or device management."
+        default:
+            return "Notes exposed items, but the bounded read could not complete. Locked items or its scripting API may be the cause; permission denial was not reported."
+        }
     }
 
     private static func offload<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {

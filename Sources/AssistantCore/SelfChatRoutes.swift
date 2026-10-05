@@ -3,6 +3,13 @@ import Foundation
 /// A control route must be a direct iMessage chat addressed to a verified owner handle.
 /// The code-paired primary route is included even if Contacts has no Me card.
 public enum SelfChatRoutes {
+    /// Keep progress, answers and reminders on one verified route. Phone routes
+    /// also avoid the email-to-phone self-chat echo migration in Messages.
+    public static func replyRoute(primary: TransportChat, verified: [TransportChat]) -> TransportChat {
+        verified.first(where: { canonical($0.identifier).map { !$0.contains("@") } == true })
+            ?? primary
+    }
+
     public static func resolve(
         primary: TransportChat,
         available: [TransportChat],

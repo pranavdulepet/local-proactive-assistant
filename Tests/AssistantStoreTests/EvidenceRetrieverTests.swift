@@ -5,6 +5,20 @@ import Testing
 @testable import AssistantStore
 
 struct EvidenceRetrieverTests {
+    @Test func personAndTopicSearchesAllIndexedMessagesWithinTheResolvedHandle() async throws {
+        let store = try ObservationStore()
+        try await store.record(Observation(source: .contacts, externalID: "alex", versionHash: "v1",
+            sourceRevision: 1, trust: .structuredSource, handles: ["alex@example.com"],
+            text: "Alex River\nNickname: Lex", locator: "contacts:alex"))
+        for (id, handle) in [("alex-visa", "alex@example.com"), ("other-visa", "other@example.com")] {
+            try await store.record(Observation(source: .messages, externalID: id, versionHash: "v1",
+                sourceRevision: 1, trust: .knownExternal, handles: [handle],
+                text: "The visas should arrive on Friday.", locator: "imsg:\(id)"))
+        }
+        let request = try await EvidenceRetriever(store: store).request(question: "What did Alex say about visas?")
+        #expect(request.records.map(\.locator) == ["imsg:alex-visa"])
+    }
+
     @Test
     func excludesTombstonesAndBoundsRetrievedText() async throws {
         let store = try ObservationStore()

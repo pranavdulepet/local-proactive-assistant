@@ -4,34 +4,67 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 source scripts/startup-common.sh
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --verbose) export ASSISTANT_VERBOSE=1 ;;
+        --help)
+            echo "Usage: bash scripts/start-open-model.sh [--verbose]"
+            echo "Start an Ollama model locally; ASSISTANT_OPEN_MODEL selects a different local tag."
+            exit 0 ;;
+        *) echo "Usage: bash scripts/start-open-model.sh [--verbose]" >&2; exit 1 ;;
+    esac
+    shift
+done
 assistant_require_mac
+assistant_start_session
 suggested_model="$(assistant_suggest_model)"
 model_name="${ASSISTANT_OPEN_MODEL:-$suggested_model}"
 if ! assistant_valid_tag "$model_name"; then
     echo "Use a local Ollama model tag. Cloud tags and invalid model names are not accepted." >&2
     exit 1
 fi
+if [[ "${ASSISTANT_STARTUP_CHECKED:-0}" != 1 ]]; then
+    assistant_stage 'Checking this Mac...'
+    assistant_require_prerequisites
+    export ASSISTANT_STARTUP_CHECKED=1
+fi
+if [[ "${ASSISTANT_STARTUP_MODEL_SHOWN:-0}" != 1 ]]; then
+    printf 'Model: %s\n' "$model_name"
+    export ASSISTANT_STARTUP_MODEL_SHOWN=1
+fi
 
 owned_runtime="$assistant_support_dir/Runtime/Ollama.app"
-install_owned_ollama() {
-    local staging
-    mkdir -p "$assistant_support_dir/Runtime"
-    chmod 700 "$assistant_support_dir" "$assistant_support_dir/Runtime"
-    staging="$(mktemp -d "$assistant_support_dir/Runtime/.ollama-download.XXXXXX")"
-    echo "Installing Ollama from its official macOS download."
-    if ! curl --proto '=https' --tlsv1.2 --fail --show-error --location \
-        https://ollama.com/download/Ollama-darwin.zip -o "$staging/Ollama.zip" \
-        || ! /usr/bin/ditto -x -k "$staging/Ollama.zip" "$staging" \
-        || ! /usr/bin/codesign --verify --deep --strict "$staging/Ollama.app" \
-        || ! /usr/sbin/spctl --assess --type execute "$staging/Ollama.app"; then
-        rm -rf "$staging"
-        echo "The official Ollama download could not be installed or verified. Use https://ollama.com/download and rerun." >&2
-        return 1
+ollama_pid=""
+pull_log=""
+list_log=""
+assistant_install_staging=""
+stop_server() {
+    if [[ -n "$ollama_pid" ]]; then
+        # Signal only our own child; finish cleanup even if it ignores SIGTERM.
+        if jobs -pr | grep -Fxq -- "$ollama_pid"; then
+            kill "$ollama_pid" 2>/dev/null || true
+            for _ in {1..50}; do
+                if ! kill -0 "$ollama_pid" 2>/dev/null; then break; fi
+                sleep 0.1
+            done
+            if jobs -pr | grep -Fxq -- "$ollama_pid"; then
+                kill -KILL "$ollama_pid" 2>/dev/null || true
+            fi
+        fi
+        wait "$ollama_pid" 2>/dev/null || true
+        ollama_pid=""
     fi
-    if [[ -d "$owned_runtime" ]]; then mv "$owned_runtime" "$staging/previous.app"; fi
-    mv "$staging/Ollama.app" "$owned_runtime"
-    rm -rf "$staging"
 }
+cleanup() {
+    stop_server
+    if [[ -n "$pull_log" ]]; then rm -f "$pull_log"; fi
+    if [[ -n "$list_log" ]]; then rm -f "$list_log"; fi
+    if [[ -n "$assistant_install_staging" ]]; then rm -rf "$assistant_install_staging"; fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 if command -v ollama >/dev/null 2>&1; then
     ollama_bin="$(command -v ollama)"
 elif [[ -x "$owned_runtime/Contents/Resources/ollama" ]]; then
@@ -39,10 +72,11 @@ elif [[ -x "$owned_runtime/Contents/Resources/ollama" ]]; then
 elif [[ -x /Applications/Ollama.app/Contents/Resources/ollama ]]; then
     ollama_bin=/Applications/Ollama.app/Contents/Resources/ollama
 elif assistant_find_brew; then
-    brew install ollama
+    assistant_stage 'Installing Ollama...'
+    if ! assistant_capture brew install ollama; then assistant_log_hint; exit 1; fi
     ollama_bin="$(command -v ollama)"
 else
-    install_owned_ollama
+    assistant_install_owned_ollama
     ollama_bin="$owned_runtime/Contents/Resources/ollama"
 fi
 brew_ollama=false
@@ -51,91 +85,103 @@ if command -v brew >/dev/null 2>&1 && brew list --formula --versions ollama >/de
     ollama_bin="$(brew --prefix ollama)/bin/ollama"
 fi
 
-# Use an owned server so an older desktop app/service cannot survive a CLI upgrade.
-# Override inherited Ollama/proxy settings for every CLI call and local health check.
+# An owned server avoids stale desktop/service versions and inherited remote endpoints.
 export OLLAMA_HOST=127.0.0.1:11435
 export OLLAMA_NO_CLOUD=1
 export NO_PROXY=localhost,127.0.0.1,::1
 ollama_url="http://$OLLAMA_HOST"
-ollama_log="${TMPDIR:-/tmp}/local-assistant-ollama.log"
-ollama_pid=""
-pull_log=""
-stop_server() {
-    if [[ -n "$ollama_pid" ]]; then
-        kill "$ollama_pid" 2>/dev/null || true
-        wait "$ollama_pid" 2>/dev/null || true
-        ollama_pid=""
-    fi
-}
-cleanup() {
-    stop_server
-    if [[ -n "$pull_log" ]]; then rm -f "$pull_log"; fi
-}
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
+ollama_log="$(mktemp "$assistant_support_dir/Logs/ollama.XXXXXX")"
 start_server() {
-    if curl --noproxy '*' --silent --fail --max-time 2 "$ollama_url/api/version" >/dev/null; then
+    if ! command -v lsof >/dev/null 2>&1; then
+        echo "The macOS lsof command is unavailable. Restore it to PATH and rerun." >&2
+        return 1
+    fi
+    if lsof -nP -iTCP:11435 -sTCP:LISTEN -t >/dev/null 2>&1; then
         echo "Port 11435 is already in use. Stop the other local assistant before restarting." >&2
         return 1
     fi
-    "$ollama_bin" serve >"$ollama_log" 2>&1 &
+    "$ollama_bin" serve >>"$ollama_log" 2>&1 &
     ollama_pid=$!
     for _ in {1..40}; do
         if ! kill -0 "$ollama_pid" 2>/dev/null; then break; fi
-        if curl --noproxy '*' --silent --fail --max-time 2 "$ollama_url/api/version" >/dev/null; then
-            echo "Ollama executable: $ollama_bin"
-            echo "Local server: $(curl --noproxy '*' --silent --fail --max-time 2 "$ollama_url/api/version")"
+        # Health alone is insufficient: another server could win the port race.
+        if lsof -nP -a -p "$ollama_pid" -iTCP:11435 -sTCP:LISTEN -t >/dev/null 2>&1 \
+            && curl --noproxy '*' --silent --fail --max-time 2 "$ollama_url/api/version" >/dev/null; then
+            if assistant_verbose; then
+                echo "Ollama executable: $ollama_bin"
+                echo "Local server: $(curl --noproxy '*' --silent --fail --max-time 2 "$ollama_url/api/version")"
+            fi
             return 0
         fi
         sleep 0.5
     done
-    echo "The local Ollama server did not start. See $ollama_log." >&2
+    tail -n 12 "$ollama_log" >&2
+    echo "Ollama did not start. Details: $ollama_log" >&2
     return 1
 }
+assistant_stage 'Starting the local model...'
 start_server
+list_log="$(mktemp "$assistant_support_dir/Logs/models.XXXXXX")"
+if ! "$ollama_bin" list >"$list_log" 2>&1; then
+    cat "$list_log" >>"$ASSISTANT_STARTUP_LOG"
+    tail -n 12 "$list_log" >&2
+    echo "Installed models could not be checked. Restart the assistant." >&2
+    assistant_log_hint
+    exit 1
+fi
+cat "$list_log" >>"$ASSISTANT_STARTUP_LOG"
 
-if ! "$ollama_bin" list | awk 'NR > 1 { print $1 }' | grep -Fxq "$model_name"; then
-    echo "Downloading $model_name once; the model remains on this Mac for later runs."
-    pull_log="$(mktemp "${TMPDIR:-/tmp}/local-assistant-pull.XXXXXX")"
-    if ! "$ollama_bin" pull "$model_name" 2>&1 | tee "$pull_log"; then
+pull_model() {
+    local pull_status=0
+    if assistant_verbose; then
+        "$ollama_bin" pull "$model_name" 2>&1 | tee "$pull_log" || pull_status=$?
+    else
+        "$ollama_bin" pull "$model_name" >"$pull_log" 2>&1 || pull_status=$?
+    fi
+    cat "$pull_log" >>"$ASSISTANT_STARTUP_LOG"
+    return "$pull_status"
+}
+if ! awk 'NR > 1 { print $1 }' "$list_log" | grep -Fxq -- "$model_name"; then
+    assistant_stage "Downloading $model_name (one time; this may take a while)..."
+    pull_log="$(mktemp "$assistant_support_dir/Logs/download.XXXXXX")"
+    if ! pull_model; then
         if ! grep -Eqi 'requires a newer version of Ollama|pull model manifest: 412' "$pull_log"; then
-            echo "Model download failed. Fix the reported error and rerun this starter." >&2
+            tail -n 12 "$pull_log" >&2
+            echo "Model download did not finish. Check the error above and rerun." >&2
+            assistant_log_hint
             exit 1
         fi
         stop_server
         if [[ "$brew_ollama" == true ]]; then
-            echo "The model needs a newer Ollama. Updating the Homebrew runtime and retrying once."
-            brew update
-            brew upgrade ollama
+            assistant_stage 'Updating Ollama for this model...'
+            if ! assistant_capture brew update || ! assistant_capture brew upgrade ollama; then
+                assistant_log_hint
+                exit 1
+            fi
             ollama_bin="$(brew --prefix ollama)/bin/ollama"
-            start_server
-            if ! "$ollama_bin" pull "$model_name"; then
-                echo "Download still failed after the update. Install the latest Ollama from https://ollama.com/download, then rerun." >&2
-                exit 1
-            fi
         elif [[ "$ollama_bin" == "$owned_runtime/Contents/Resources/ollama" ]]; then
-            echo "The model needs a newer Ollama. Updating this assistant's private runtime and retrying once."
-            install_owned_ollama
-            start_server
-            if ! "$ollama_bin" pull "$model_name"; then
-                echo "Download still failed after the update. Check the error above and rerun." >&2
-                exit 1
-            fi
+            assistant_stage 'Updating Ollama for this model...'
+            assistant_install_owned_ollama
         else
             echo "Update Ollama from https://ollama.com/download (or its menu > Restart to update), then rerun." >&2
-            echo "This starter used $ollama_bin. Check that this executable was updated too." >&2
+            echo "Executable used: $ollama_bin" >&2
+            assistant_log_hint
+            exit 1
+        fi
+        start_server
+        if ! pull_model; then
+            tail -n 12 "$pull_log" >&2
+            echo "The model still could not download after updating Ollama. Check the error above." >&2
+            assistant_log_hint
             exit 1
         fi
     fi
 fi
 
-# Remember explicit open-model starter choices as well as choices from the main menu.
+# Keep explicit shortcut choices as well as choices made in the model menu.
 model_choice=ollama
 model_url=""
 assistant_save_profile
-echo "Using $model_name on this Mac. Replies are generated locally."
 ASSISTANT_MODEL=local \
 ASSISTANT_MODEL_URL="$ollama_url/v1" \
 ASSISTANT_MODEL_NAME="$model_name" \

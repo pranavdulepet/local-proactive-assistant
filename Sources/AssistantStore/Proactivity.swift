@@ -58,15 +58,17 @@ public struct ProactiveReminderService: Sendable {
     private let store: ObservationStore
     private let transport: any MessageTransport
     private let ledger: OutboundLedger
+    private let replyPrefix: String
 
     public init(
         store: ObservationStore,
         transport: any MessageTransport,
-        ledger: OutboundLedger
+        ledger: OutboundLedger, replyPrefix: String = ""
     ) {
         self.store = store
         self.transport = transport
         self.ledger = ledger
+        self.replyPrefix = replyPrefix
     }
 
     /// Reserve before touching the transport. An interrupted/ambiguous send is never retried.
@@ -79,13 +81,14 @@ public struct ProactiveReminderService: Sendable {
             return false
         }
         do {
+            let text = replyPrefix + reservation.text
             try Task.checkCancellation()
             try await ledger.begin(
                 requestID: reservation.id, chatID: chatID,
-                text: reservation.text, sentAt: now
+                text: text, sentAt: now
             )
             let receipt = try await transport.send(
-                OutboundTransportMessage(requestID: reservation.id, text: reservation.text), to: chatID
+                OutboundTransportMessage(requestID: reservation.id, text: text), to: chatID
             )
             try await ledger.confirm(requestID: reservation.id, messageGUID: receipt.messageGUID)
             try await store.finishReminder(

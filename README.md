@@ -28,7 +28,8 @@ you never need to look up chat IDs. It also offers to prepare Mail, Notes, and R
 on the Mac before you ask about them from your phone.
 
 macOS controls source access. Allow Full Disk Access for your terminal, reopen it when asked,
-and allow Automation for Messages and the connected apps. This is currently a source build:
+and allow Automation for Messages, Mail, and Notes, plus the normal Reminders permission
+for that source. This is currently a source build:
 Swift 6-compatible developer tools are required. Apple's model additionally needs Apple
 silicon, macOS 26+, Apple Intelligence, and Xcode 26+. A signed, downloadable host app is still
 planned. See [installation and first text](docs/install.md).
@@ -82,15 +83,17 @@ the model choose an outbound recipient. Source text is treated as data.
 | Messages | Indexed one-to-one text history; coverage is reported |
 | Calendar | Permissioned events in the refresh window |
 | Contacts | Permissioned local contacts and identity joins |
-| Apple Mail | A bounded Inbox sample with body snippets |
-| Notes and Reminders | Bounded permissioned read samples |
+| Apple Mail | Query-directed Inbox and mailbox searches; paged results and body excerpts |
+| Notes | Title/body search across exposed notes, with inspection and result limits |
+| Reminders | Native EventKit reads of synced lists, completion states and due dates |
 | Local files | Supported formats within permitted roots; an extra folder can be added |
 | Mac details | Fixed read-only device information |
 | Phone context | Optional paired companion with derived HealthKit sleep context |
 
 Ask naturally in the verified self-chat. Slow turns show native typing when the existing
-transport supports it, otherwise one short progress acknowledgment. Bubble color is controlled
-by Messages and may be blue or gray because both sides use your own account.
+transport supports it, otherwise one short progress acknowledgment. All progress and answers
+use one verified phone route when available and carry an `Assistant:` label. Messages controls
+bubble color; a self-chat cannot guarantee a distinct gray sender.
 
 The transport has durable cursors, reconnect recovery, and an outbound ledger to prevent
 self-reply loops. An unconfirmed send is not automatically resent. One opt-in commitment
@@ -99,7 +102,8 @@ while conversation commands keep working.
 
 This remains a development-stage foreground host. The paired phone companion adds selected
 phone context; it is not an independent iMessage responder. A signed host app and richer
-phone-model choices remain planned. See [model and phone details](docs/local-models.md),
+phone-model choices remain planned. See [source access and coverage](docs/read-access.md),
+[model and phone details](docs/local-models.md),
 [storage](docs/m1-storage.md), and [host policy](docs/m1-host.md).
 
 ## Requirements
@@ -140,12 +144,19 @@ swift run assistantctl serve --control-chat-id <SELF_CHAT_ID>
 ```
 
 Only choose a private, one-to-one iMessage self-chat. The echo and control services never
-choose a recipient; they can send only to the chat ID supplied at startup. Ordinary self-chat texts start a local conversation when the model is enabled. The host sends one final answer per turn and queues follow-ups; commands and direct Calendar agendas can answer while generation is running. The last four exchanges are kept in a bounded private Mac transcript for follow-ups. Because the Mac sends from your own iMessage account to your self-chat, some replies appear as outgoing blue bubbles; the same conversation can also render gray on the phone depending on the address and route Messages uses. A [separate assistant identity](https://github.com/pranavdulepet/local-proactive-assistant/issues/28) is the intended long-term conversation UX. Send `/help` in the control chat to list commands.
+choose a recipient. Verified self-chat aliases share one fixed reply route. Ordinary texts
+start a local conversation, including calendar questions, and preserve follow-up context.
+The host queues one final answer per turn; deterministic commands remain available during
+generation. The last four exchanges are kept in a bounded private transcript. A
+[separate assistant identity](https://github.com/pranavdulepet/local-proactive-assistant/issues/28)
+is needed for a reliably distinct incoming sender. Send `/help` for commands.
 
 `serve` refreshes Messages and commitments every 60 seconds after each completed scan, and
 Calendar/Contacts every 15 minutes. Reminders start paused. `/resume` enables the one M1 rule;
 `/pause` stops unsolicited reminders without disabling commands. `/status` reports the last
-gate, submission state and source freshness. Use `/meeting <exact person>` for indexed meeting
+gate, submission state, source freshness and last checked Mail/Notes/Reminders access.
+Access checks and search coverage are different: readable does not mean fully indexed.
+Use `/meeting <exact person>` for indexed meeting
 context. This is a foreground host: keep the Mac awake and the process running. Do not run the
 echo test or manual indexers alongside it. See [docs/m1-host.md](docs/m1-host.md) for policy,
 failure semantics and the focused device smoke test.

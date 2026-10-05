@@ -21,12 +21,14 @@ public struct ModelWireResponse: Codable, Sendable {
     public let chatReply: ChatReply?
     public let contextPlan: ContextPlan?
     public let failure: String?
+    public let failureKind: String?
     public init(availability: ModelAvailability? = nil, answer: GroundedAnswer? = nil, chatReply: ChatReply? = nil,
-                contextPlan: ContextPlan? = nil, failure: String? = nil) {
+                contextPlan: ContextPlan? = nil, failure: String? = nil, failureKind: String? = nil) {
         self.availability = availability
         self.answer = answer
         self.chatReply = chatReply
         self.contextPlan = contextPlan
         self.failure = failure
+        self.failureKind = failureKind
     }
 }

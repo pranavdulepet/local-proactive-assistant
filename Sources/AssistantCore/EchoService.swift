@@ -90,6 +90,11 @@ public struct EchoService: Sendable {
                                     after: lastCursor
                                 )
                                 guard decision == .accept else {
+                                    if decision == .reject(.wrongChat) {
+                                        // A foreign row must never move this owner's cursor.
+                                        continuation.yield(EchoEvent(inbound: message, decision: decision, receipt: nil))
+                                        continue
+                                    }
                                     lastCursor = max(lastCursor ?? message.cursor, message.cursor)
                                     try await cursorStore.advance(
                                         chatID: chatID,
