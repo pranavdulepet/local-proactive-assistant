@@ -46,6 +46,9 @@ elif name == "assistantctl":
     if args[0] == "doctor" and os.environ.get("FIXTURE_DENIED"):
         print("Messages: permission denied for chat.db", file=sys.stderr)
         sys.exit(1)
+    if args[0] == "doctor" and os.environ.get("FIXTURE_RPC_FAILED"):
+        print("Messages: RPC process exited unexpectedly", file=sys.stderr)
+        sys.exit(1)
     if args[0] == "model-status" and os.environ.get("FIXTURE_MODEL_UNAVAILABLE"): sys.exit(1)
     if args[0] == "prepare-access" and os.environ.get("FIXTURE_SOURCE_DENIED"):
         print("Mail: allow Automation > Mail for this terminal.", file=sys.stderr)
@@ -167,13 +170,21 @@ class GuidedStarterTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.repo / "SHOULD_NOT_EXIST").exists())
 
-    def test_denied_messages_access_opens_specific_settings(self):
+    def test_denied_messages_access_explains_settings_and_preserves_choice(self):
         self.write_profile()
         result, calls = self.run_start(FIXTURE_DENIED="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Privacy_AllFiles", calls)
+        self.assertIn("Full Disk Access", result.stderr)
         self.assertNotIn("host serve", calls)
         self.assertTrue(self.profile.exists())
+
+    def test_rpc_failure_does_not_open_permission_settings(self):
+        self.write_profile()
+        result, calls = self.run_start(FIXTURE_RPC_FAILED="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("RPC process exited unexpectedly", result.stderr)
+        self.assertNotIn("open ", calls)
+        self.assertNotIn("host serve", calls)
 
     def test_missing_developer_tools_requests_macos_install(self):
         result, calls = self.run_start(FIXTURE_NO_TOOLS="1")

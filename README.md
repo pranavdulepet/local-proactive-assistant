@@ -28,7 +28,8 @@ you never need to look up chat IDs. It also offers to prepare Mail, Notes, and R
 on the Mac before you ask about them from your phone.
 
 macOS controls source access. Allow Full Disk Access for your terminal, reopen it when asked,
-and allow Automation for Messages and the connected apps. This is currently a source build:
+and allow Automation for Messages, Mail, and Notes, plus the normal Reminders permission
+for that source. This is currently a source build:
 Swift 6-compatible developer tools are required. Apple's model additionally needs Apple
 silicon, macOS 26+, Apple Intelligence, and Xcode 26+. A signed, downloadable host app is still
 planned. See [installation and first text](docs/install.md).

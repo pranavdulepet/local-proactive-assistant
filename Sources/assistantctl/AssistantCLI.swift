@@ -375,6 +375,7 @@ struct AssistantCLI {
             }
             print("Ready. Text your Messages self-chat from your iPhone.")
             print("/status shows source access. Control-C stops the assistant.")
+            print("Keep this window open and your Mac awake and online. Closing the lid can stop replies.")
             if verbose { print("Refresh: Messages every minute; Calendar and Contacts every 15 minutes.") }
             if model != nil {
                 let work = await inbox.counts()

@@ -24,7 +24,9 @@ public struct IndexedContextSource: ReadContextSource {
         do {
             let result = try await read(call)
             try result.validate()
-            try await access?.record(tool: accessTool, ready: true, detail: result.coverage.joined(separator: " "))
+            // Access status is advisory. A metadata write failure must not discard
+            // successfully read evidence or become a source-access diagnosis.
+            try? await access?.record(tool: accessTool, ready: true, detail: result.coverage.joined(separator: " "))
             return result
         } catch is CancellationError { throw CancellationError() }
         catch {

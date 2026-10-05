@@ -82,7 +82,6 @@ if ! assistant_capture .build/release/assistantctl doctor "${check_args[@]}"; th
     echo "System Settings > Privacy & Security > Full Disk Access, then quit and reopen it." >&2
     echo "Rerun bash scripts/start.sh. Your model choice is saved." >&2
     assistant_log_hint
-    open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles' || true
     exit 1
 fi
 

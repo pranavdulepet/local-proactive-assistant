@@ -95,9 +95,10 @@ public actor ModelConversationService {
         let previous = await history.lastUserMessage()
         let query = ConversationContextRouter.retrievalQuery(for: message, previous: previous)
         let needsMail = query.map(ConversationContextRouter.requestsMail) ?? false
+        let readingMailDirectly = contextSource == nil && mail != nil && needsMail
         let progress = ConversationProgress(
             transport: transport, ledger: ledger, chatID: chatID,
-            text: replyPrefix + (needsMail ? "I'm checking Apple Mail on your Mac…" : "I'm working on that…"),
+            text: replyPrefix + (readingMailDirectly ? "I'm checking Apple Mail on your Mac…" : "I'm working on that…"),
             delay: progressDelay
         )
         await progress.start()

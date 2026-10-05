@@ -5,6 +5,21 @@ import Testing
 @testable import AssistantStore
 
 struct IndexedContextSourceTests {
+    @Test func accessStatusWriteFailureDoesNotDiscardSuccessfulRead() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("source-access.json")
+        let access = try SourceAccessRegistry(fileURL: file)
+        // A directory at the status-file path makes the atomic metadata write fail.
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: true)
+        let source = CountingContextMail()
+        let reader = IndexedContextSource(store: try ObservationStore(), mail: source, access: access)
+        let result = try await reader.execute(ContextToolCall(tool: .mailInbox, query: "Maya project"))
+        #expect(result.records.count == 1)
+        #expect(await source.count() == 1)
+        #expect(await access.snapshot().isEmpty)
+    }
+
     @Test func calendarReadsUsePlannerISODateRatherThanToday() async throws {
         let store = try ObservationStore()
         let calendar = Calendar.autoupdatingCurrent

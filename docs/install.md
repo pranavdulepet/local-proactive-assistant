@@ -57,7 +57,8 @@ The same setting works with the open-model starter. For multiple extra folders, 
 repeated `--read-root <folder>` arguments to `assistantctl serve` directly. macOS may ask
 for Documents, Desktop, or other folder permissions.
 
-Replies start with `Assistant:` and use one verified phone-number route. Messages controls
+Replies start with `Assistant:` and use one verified self-chat route, preferring your phone
+number when available. Messages controls
 whether they appear blue or gray because both sides use your account. Native typing is used
 when the existing transport supports it; otherwise a slow turn gets one short progress
 message. Setup does not require

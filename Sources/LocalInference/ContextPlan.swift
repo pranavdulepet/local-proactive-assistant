@@ -167,7 +167,10 @@ public enum ContextPlanningPrompt {
         Messages, Calendar, Contacts, email and phone summaries; express the source and
         date in the query when needed. For Calendar date searches include ISO YYYY-MM-DD
         dates, converting relative dates using the supplied host time and timezone.
-        mailInbox reads current Apple Mail inbox messages and is preferred for current email;
+        mailInbox reads current Apple Mail and is preferred for current email. Omit query
+        for the Inbox, or use unread for unread Inbox items. For a sender, subject, topic,
+        Archive, Sent, or date request, provide concise keywords and ISO YYYY-MM-DD dates.
+        Specific queries search the account and local mailboxes selected by those terms.
         searchIndex email evidence may be from an earlier refresh.
         searchFiles discovers permitted local files. readFile reads a file by absolute path;
         prefer a path discovered in records rather than inventing one. notes and reminders
