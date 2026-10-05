@@ -17,6 +17,11 @@ public struct CalendarAgendaService: Sendable {
         let dayOffset: Int
         let dayName: String
         let words = Set(text.split(whereSeparator: { !$0.isLetter }).map(String.init))
+        // This fast path only lists a day's agenda. Context, preparation and
+        // combined-source questions belong in the conversational read loop.
+        let agendaWords: Set<String> = ["what", "whats", "s", "is", "on", "my", "calendar", "schedule",
+            "today", "tomorrow", "tmr", "do", "i", "have", "any", "show", "me", "please", "for", "agenda", "the"]
+        guard words.isSubset(of: agendaWords) else { return nil }
         if text.contains("tomorrow") || words.contains("tmr") {
             dayOffset = 1
             dayName = "tomorrow"

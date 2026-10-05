@@ -26,19 +26,23 @@ struct CalendarAgendaServiceTests {
             for: .calendar, status: .partial,
             limitations: ["Deleted events are not yet reconciled."], at: now
         )
-        let handler = ControlCommandHandler(
-            store: store, clock: { now },
-            answerQuestion: { _ in "model should not answer an exact agenda query" }
-        )
+        let handler = ControlCommandHandler(store: store, clock: { now })
 
         let reply = try #require(try await handler.response(to: "What is on my calendar tomorrow?"))
         #expect(reply.contains("Team sync"))
         #expect(reply.contains("— Team sync"))
         #expect(!reply.contains("eventkit:"))
         #expect(reply.contains("Calendar data may be incomplete"))
-        #expect(!reply.contains("model should not answer"))
         #expect(try await handler.response(to: "/ask what is on my calendar tomorrow") == reply)
         #expect(try await handler.response(to: "What is on my calendar tmr") == reply)
+    }
+
+    @Test func enabledConversationReceivesCalendarTurnsAndMixedRequestsAvoidTheFastPath() async throws {
+        let store = try ObservationStore()
+        let handler = ControlCommandHandler(store: store, answerQuestion: { _ in "conversation turn queued" })
+        #expect(try await handler.response(to: "What is on my calendar tomorrow?") == "conversation turn queued")
+        #expect(try await CalendarAgendaService(store: store).response(
+            to: "What should I prepare tomorrow based on my calendar and emails?") == nil)
     }
 
     @Test

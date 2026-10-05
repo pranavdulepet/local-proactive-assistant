@@ -57,7 +57,7 @@ struct ConversationInboxDurabilityTests {
         #expect((object["seenIDs"] as? [String])?.count == 4_096)
         #expect((object["turns"] as? [[String: Any]])?.count == 257)
         let restarted = try ConversationInbox(fileURL: file)
-        #expect(try await restarted.enqueue(id: "legacy-4_499", question: "duplicate", chatID: chat) == .duplicate)
+        #expect(try await restarted.enqueue(id: "legacy-4499", question: "duplicate", chatID: chat) == .duplicate)
         #expect(try await restarted.claim()?.id == "new")
     }
 

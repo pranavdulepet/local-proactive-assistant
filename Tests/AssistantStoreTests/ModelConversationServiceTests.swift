@@ -5,6 +5,30 @@ import Testing
 @testable import AssistantStore
 
 struct ModelConversationServiceTests {
+    @Test func exactCalendarAgendaStaysFastAndPersistsFollowUpContext() async throws {
+        let store = try ObservationStore()
+        let now = Date(), calendar = Calendar.autoupdatingCurrent
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+        try await store.record(Observation(source: .calendar, externalID: "team-sync", versionHash: "v1",
+            sourceRevision: 1, sourceTimestamp: tomorrow.addingTimeInterval(3600), trust: .structuredSource,
+            text: "Team sync\nStatus: confirmed\nAll day: no", locator: "calendar:team-sync"))
+        try await store.refreshCoverage(for: .calendar, status: .partial, limitations: ["Fixture window"], at: now)
+        let history = ConversationHistory(), provider = TestChatModel(), transport = AnswerTransport()
+        let service = ModelConversationService(store: store, provider: provider, transport: transport,
+            ledger: try OutboundLedger(), chatID: TransportChatID(rawValue: 954), history: history)
+        let question = "What is on my calendar tomorrow?"
+        _ = try await service.begin(question: question, sourceID: "calendar-turn")
+        let reply = await transport.waitForSend()
+        #expect(reply.0.text.contains("Team sync"))
+        for _ in 0..<50 {
+            if await history.lastUserMessage() == question { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await history.lastUserMessage() == question)
+        #expect(await history.recent().last?.text.contains("Team sync") == true)
+        #expect(await provider.captured().isEmpty)
+    }
+
     @Test func transcriptFailureAfterASuccessfulSendDoesNotMakeDeliveryUncertain() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

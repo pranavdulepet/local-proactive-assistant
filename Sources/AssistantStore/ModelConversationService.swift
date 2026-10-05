@@ -103,7 +103,11 @@ public actor ModelConversationService {
         await progress.start()
         var reply: String
         do {
-            if let contextSource {
+            if let agenda = try await CalendarAgendaService(store: store).response(to: message) {
+                // Exact agendas stay fast and grounded, while their exchange is
+                // persisted below so the next conversational turn can refer to it.
+                reply = agenda
+            } else if let contextSource {
                 let answer = try await PersonalContextAgent(
                     provider: provider, source: contextSource, availableTools: contextTools,
                     coverage: [
