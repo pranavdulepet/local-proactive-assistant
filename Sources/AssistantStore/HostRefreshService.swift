@@ -63,4 +63,3 @@ public actor HostRefreshService {
         return HostRefreshReport(messagesReady: messagesReady, failures: failures)
     }
 }
-
