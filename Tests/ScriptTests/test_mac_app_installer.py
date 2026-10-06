@@ -27,7 +27,15 @@ elif name == "xcrun":
         binary = Path(args[args.index("-o") + 1])
         binary.write_text("#!/bin/bash\nexit 0\n")
         binary.chmod(0o755)
+elif name == "xattr":
+    assert args[0] == "-cr"
+    staged = Path(args[-1])
+    assert staged.name == "LocalAssistant.app" and staged.parent.name.startswith(".native-install.")
+    (root / "metadata-cleaned").touch()
 elif name == "codesign":
+    if (root / "metadata-required").exists() and not (root / "metadata-cleaned").exists():
+        print("resource fork, Finder information, or similar detritus not allowed", file=sys.stderr)
+        sys.exit(1)
     if (root / "signature-failure").exists(): sys.exit(1)
     if "--force" in args and Path(args[-1]).name == "imsg" and not Path(args[-1]).stat().st_mode & 0o200:
         print("Permission denied signing read-only helper", file=sys.stderr)
@@ -58,7 +66,7 @@ class MacAppInstallerTests(unittest.TestCase):
             shutil.copyfile(REPO / "Configuration" / filename, self.repo / "Configuration" / filename)
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        for name in ("uname", "sw_vers", "swift", "xcrun", "codesign", "mv", "open"):
+        for name in ("uname", "sw_vers", "swift", "xcrun", "codesign", "mv", "open", "xattr"):
             (self.bin / name).write_text(STUB)
             (self.bin / name).chmod(0o755)
         (self.bin / "imsg").write_text("#!/bin/bash\nexit 0\n")
@@ -115,6 +123,16 @@ class MacAppInstallerTests(unittest.TestCase):
         self.assertEqual(worker[0][worker[0].index("--entitlements") + 1], "Configuration/ModelWorker.entitlements")
         self.assertFalse(any("--deep" in call for call in signing))
         self.assertTrue(any(call[1:4] == ["--verify", "--deep", "--strict"] for call in self.calls()))
+
+    def test_copied_metadata_is_removed_only_from_staging_before_signing(self):
+        (self.root / "metadata-required").touch()
+        result = self.install("--build-only")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls()
+        cleanup = [call for call in calls if call[0] == "xattr"]
+        self.assertEqual(len(cleanup), 1)
+        self.assertLess(calls.index(cleanup[0]), next(i for i, call in enumerate(calls) if call[0] == "codesign"))
+        self.assertEqual((self.bin / "imsg").stat().st_mode & 0o777, 0o555)
 
     def test_access_descriptions_are_in_the_installed_app(self):
         result = self.install("--build-only")

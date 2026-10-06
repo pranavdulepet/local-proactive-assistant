@@ -113,13 +113,35 @@ struct AssistantCLI {
             }
 
         case "model-eval":
-            let provider = MacModelProvider()
+            let conversation = takeFlag("--conversation", from: &arguments)
+            let model = takeOption("--model", from: &arguments) ?? "apple"
+            let localURL = takeOption("--model-url", from: &arguments)
+            let localName = takeOption("--model-name", from: &arguments)
+            guard arguments.isEmpty else { throw CLIError("Unexpected model-eval arguments: " + arguments.joined(separator: " ")) }
+            let provider = try selectedModel(model, url: localURL, name: localName)
+            print("Evaluating \(provider.modelID) using synthetic evidence only; no personal sources or Messages sends.")
             let state = await provider.availability()
             guard state.ready else { throw CLIError(state.detail) }
             let request = EvidenceRequest(question: "What is the demo project deadline?", createdAt: Date(), records: [
                 EvidenceRecord(id: "demo1", source: "demo", timestamp: nil, text: "The demo project deadline is Friday at 5 PM.", locator: "public demo fixture", trust: "ownerAuthored")
             ], coverage: ["Synthetic public fixture only; no personal data."])
             let start = Date()
+            if conversation {
+                let agent = PersonalContextAgent(provider: provider, source: DemoEvaluationSource(records: request.records),
+                    availableTools: [.searchIndex], coverage: request.coverage)
+                let answer = try await agent.reply(message: "Look up the demo project deadline in the local index and tell me when it is.", history: [])
+                for entry in answer.trace {
+                    print("\(entry.stage) \(entry.tool?.rawValue ?? "model"): \(entry.elapsedMilliseconds)ms; \(entry.outcome)")
+                }
+                guard answer.trace.contains(where: { $0.stage == "read" && $0.tool == .searchIndex }),
+                      answer.reply.text.contains("[e1]") else {
+                    throw CLIError("The conversation evaluation did not complete a cited synthetic source read.")
+                }
+                print("Synthetic conversation read and citation checks passed in \(String(format: "%.1f", Date().timeIntervalSince(start)))s.")
+                print(answer.reply.text)
+                print("Review whether the reply preserves Friday at 5 PM. This does not verify personal sources or phone delivery.")
+                return
+            }
             let answer = try await provider.answer(request)
             try answer.validate(for: request)
             guard !answer.insufficientEvidence else { throw CLIError("Model abstained on the supported demo fixture.") }
@@ -749,7 +771,7 @@ struct AssistantCLI {
           assistantctl unpair-phone
           assistantctl model-status
           assistantctl prepare-access
-          assistantctl model-eval
+          assistantctl model-eval [--conversation] [--model apple|ollama|local] [--model-url <loopback-url> --model-name <model>]
           assistantctl ask --question <question> [--person <exact person>]
           assistantctl export-context --question <question> [--person <exact person>] --output <file.lpa-context>
           assistantctl proactive-status
@@ -802,3 +824,12 @@ private final class HostStopSignals: @unchecked Sendable {
     deinit { for source in sources { source.cancel() } }
 }
 
+/// Public synthetic evidence only; model evaluation never constructs personal source adapters.
+private struct DemoEvaluationSource: ReadContextSource {
+    let records: [EvidenceRecord]
+    func execute(_ call: ContextToolCall) async throws -> ContextToolResult {
+        try call.validate()
+        guard call.tool == .searchIndex else { throw CLIError("Only the synthetic index is available during model evaluation.") }
+        return ContextToolResult(records: records, coverage: ["Synthetic public fixture only; no personal data."])
+    }
+}

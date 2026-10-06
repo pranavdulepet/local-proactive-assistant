@@ -84,7 +84,10 @@ final class HostController: ObservableObject {
                 try prepareLog()
                 if profile.provider == "ollama" { try await startOllama(token: token) }
                 let doctor = try await command(cli, ["doctor", "--quiet"], timeout: 20)
-                guard doctor.status == 0 else { throw HostFailure(doctor.text.isEmpty ? "Allow Local Assistant Full Disk Access in Privacy & Security, then Start again." : doctor.text) }
+                guard doctor.status == 0 else {
+                    throw HostFailure((doctor.text.isEmpty ? "Messages access could not be verified." : doctor.text)
+                        + "\nFor an access denial, grant Local Assistant Full Disk Access in System Settings > Privacy & Security, then quit and reopen this app. Terminal's permission does not apply to this app.")
+                }
                 let check = try await command(cli, ["model-status"] + profile.arguments + ["--quiet"], timeout: 25)
                 guard check.status == 0 else { throw HostFailure(check.text.isEmpty ? "The selected local model is unavailable." : check.text) }
                 try Task.checkCancellation()
@@ -421,7 +424,7 @@ final class HostController: ObservableObject {
         case .enabled: loginDetail = "Starts at your next login."
         case .requiresApproval: loginDetail = "Approve Local Assistant in Login Items."
         case .notRegistered: loginDetail = "Off"
-        case .notFound: loginDetail = "Install the app before enabling login startup."
+        case .notFound: loginDetail = "Login startup is unavailable. Reopen the installed app and try Start at login."
         @unknown default: loginDetail = "Login status unavailable."
         }
     }

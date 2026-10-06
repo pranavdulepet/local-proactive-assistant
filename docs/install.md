@@ -29,7 +29,9 @@ The starter walks through these steps:
 3. Choose a local model. The starter saves your choice and installs Ollama when selected.
    The first model download may be large; later starts reuse the weights.
 4. Allow your terminal Full Disk Access in System Settings. Quit and reopen the terminal
-   after changing that permission, then rerun the starter.
+   after changing that permission, then rerun the starter. If you launch the command from
+   another app such as Codex, that supervising app needs its own grant; Terminal's grant
+   does not cover it.
 5. Send the exact one-time `LOCAL-...` pairing code from your iPhone to your private
    one-to-one self-chat. Confirm the chat found on the Mac. Phone and email aliases are
    resolved by the host; you do not enter a numeric chat ID.
@@ -99,6 +101,20 @@ still interrupt replies. It restarts a host that exits unexpectedly after becomi
 with three attempts, and stops with an actionable status if startup fails. Stop and Quit
 terminate the processes the app owns, including its separate local Ollama server. They
 leave other Ollama instances alone. Stop a Terminal host before launching this app.
+
+To inspect the actual login registration without starting another host:
+
+```bash
+"$HOME/Applications/LocalAssistant.app/Contents/MacOS/LocalAssistant" --login-status
+```
+
+For a reversible registration check, run the same executable with `--check-login-startup`.
+It preserves an existing enabled/pending registration, or registers and unregisters an
+initially disabled service. It does not start the host or change an enabled login preference.
+A restoration failure is reported explicitly; inspect Login Items in that case.
+
+An enabled registration still needs a physical logout/login test to verify host readiness
+and a reply on the phone. Registration status alone does not prove that round trip.
 
 This is a source-built, ad-hoc signed app. It is not a Developer ID signed, notarized
 download. The first model choice, model download, and Messages self-chat pairing still use

@@ -13,6 +13,7 @@ struct NativeHostTests {
         try await testStopCancelsStartupCheck(root)
         try await testPhonePairingBlocksStartAndCancelsItsProcess(root)
         try await testExitBeforeReadyIsNotRetried(root)
+        try await testAccessDenialNamesTheNativeApp(root)
         print("Native host profile and process lifecycle tests passed.")
     }
 
@@ -64,7 +65,8 @@ struct NativeHostTests {
         let script = """
         #!/bin/bash
         case "$1" in
-          doctor|model-status) \(behavior == "blocked-check" ? "echo $$ > '\(path)'; exec /bin/sleep 60" : "exit 0") ;;
+          doctor) \(behavior == "denied-doctor" ? "echo 'Messages: unavailable'; exit 1" : behavior == "blocked-check" ? "echo $$ > '\(path)'; exec /bin/sleep 60" : "exit 0") ;;
+          model-status) exit 0 ;;
           serve) echo $$ > '\(path)'; \(behavior == "exit-before-ready" ? "exit 7" : "echo 'Ready. Fixture host'; exec /bin/sleep 60") ;;
           pair-phone) echo $$ > '\(path)'; exec /bin/sleep 60 ;;
           *) exit 0 ;;
@@ -117,6 +119,14 @@ struct NativeHostTests {
         try require(host.notice.contains("7"), "Exit status was hidden.")
         try await Task.sleep(for: .milliseconds(2200))
         try require(host.phase == .attention, "Failed startup was automatically retried.")
+    }
+
+    @MainActor private static func testAccessDenialNamesTheNativeApp(_ root: URL) async throws {
+        let (host, _) = try fixture(root, name: "access-denial", behavior: "denied-doctor")
+        host.launch()
+        try await waitUntil("Messages denial did not stop startup.") { host.phase == .attention }
+        try require(host.notice.contains("Local Assistant Full Disk Access"), "Native access recovery did not name the responsible app.")
+        try require(host.notice.contains("quit and reopen"), "Native access recovery did not explain the required relaunch.")
     }
 
     @MainActor private static func testPhonePairingBlocksStartAndCancelsItsProcess(_ root: URL) async throws {

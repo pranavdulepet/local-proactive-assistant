@@ -50,6 +50,21 @@ Inspect a model directly:
 .build/release/assistantctl model-status --model apple
 ```
 
+Verify actual inference with public synthetic evidence, without reading personal sources or
+sending Messages. Use the same model flags as `model-status`:
+
+```bash
+.build/release/assistantctl model-eval --model ollama \
+  --model-url http://127.0.0.1:11435 --model-name qwen3.8:27b-q4_K_M
+.build/release/assistantctl model-eval --conversation --model ollama \
+  --model-url http://127.0.0.1:11435 --model-name qwen3.8:27b-q4_K_M
+```
+
+The second command uses the production conversation/read loop against a synthetic index,
+prints model/read timing, and requires a cited read. Inspect the answer's meaning as well as
+the protocol checks. Neither test proves personal-source quality or visible phone delivery.
+Omit model flags for Apple, or use `--model local` with your loopback `/v1` endpoint and model.
+
 The Ollama server must be running for its status call. The Mac menu bar app supervises it and
 the host without Terminal. It reuses the saved profile. Enable **Start at login** to resume
 at login; the Mac must remain logged in, awake and online for phone texts to receive replies.

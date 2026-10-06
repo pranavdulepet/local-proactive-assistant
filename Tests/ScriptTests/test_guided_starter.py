@@ -88,7 +88,7 @@ class GuidedStarterTests(unittest.TestCase):
         target.write_text(STUB)
         target.chmod(0o755)
         self.env = dict(os.environ, FIXTURE_ROOT=str(self.root), HOME=str(self.root / "home"),
-                        TMPDIR=str(self.root), PATH=str(self.root / "bin") + os.pathsep + os.environ["PATH"])
+                        TMPDIR=str(self.root), PATH=str(self.root / "bin") + os.pathsep + "/usr/bin:/bin:/usr/sbin:/sbin")
         for name in ("ASSISTANT_MODEL", "ASSISTANT_MODEL_NAME", "ASSISTANT_MODEL_URL", "ASSISTANT_OPEN_MODEL", "DEVELOPER_DIR", "ASSISTANT_STARTUP_LOG", "ASSISTANT_STARTUP_BANNER", "ASSISTANT_STARTUP_CHECKED", "ASSISTANT_STARTUP_MODEL_SHOWN", "ASSISTANT_DEBUG", "ASSISTANT_VERBOSE"):
             self.env.pop(name, None)
         self.profile = self.root / "home/Library/Application Support/LocalProactiveAssistant/model-profile.txt"

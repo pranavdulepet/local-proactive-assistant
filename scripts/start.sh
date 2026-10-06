@@ -84,8 +84,10 @@ esac
 
 assistant_stage 'Checking Messages access...'
 if ! assistant_capture .build/release/assistantctl doctor "${check_args[@]}"; then
-    echo "Messages access needs attention. For a permission error, allow this terminal under" >&2
-    echo "System Settings > Privacy & Security > Full Disk Access, then quit and reopen it." >&2
+    echo "Messages access needs attention. For a permission error, grant Full Disk Access to" >&2
+    echo "the app supervising this command (for example Terminal or Codex) in System Settings" >&2
+    echo "> Privacy & Security, then quit and reopen that app. Terminal's grant does not apply" >&2
+    echo "to a command launched from another app." >&2
     echo "Rerun bash scripts/start.sh. Your model choice is saved." >&2
     assistant_log_hint
     exit 1
