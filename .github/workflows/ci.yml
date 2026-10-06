@@ -28,15 +28,15 @@ jobs:
       - name: Test
         run: swift test
       - name: Install and probe sandboxed model worker
-        if: matrix.runner == 'macos-26'
+        if: ${{ !cancelled() && matrix.runner == 'macos-26' }}
         run: |
           ./scripts/setup-local-model.sh
           ./scripts/check-model-worker.sh
       - name: Test native host lifecycle
-        if: matrix.runner == 'macos-26'
+        if: ${{ !cancelled() && matrix.runner == 'macos-26' }}
         run: bash scripts/test-mac-host.sh
       - name: Build and verify native Mac app
-        if: matrix.runner == 'macos-26'
+        if: ${{ !cancelled() && matrix.runner == 'macos-26' }}
         run: |
           brew install steipete/tap/imsg
           bash scripts/install-mac-app.sh --build-only --output "$RUNNER_TEMP/LocalAssistant.app"

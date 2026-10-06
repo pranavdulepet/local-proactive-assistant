@@ -131,15 +131,15 @@ struct MailStoreSourceTests {
         }
         if (Number(reply.numberOfItems) !== 6) throw new Error('Native descriptor fixture expected six script values; received ' + Number(reply.numberOfItems));
         var nativeDate = $.NSDate.dateWithTimeIntervalSince1970(1791140400);
-        reply.insertDescriptorAtIndex($.NSAppleEventDescriptor.descriptorWithDate(nativeDate), 4);
+        reply.insertDescriptorAtIndex($.NSAppleEventDescriptor.descriptorWithDate(nativeDate), 7);
         if (Number(reply.numberOfItems) !== 7) throw new Error('Native descriptor fixture could not insert its date');
         var m = fixtureInbox[119];
         m.id = function() { return reply.descriptorAtIndex(1).int32Value; };
         m.sender = function() { return reply.descriptorAtIndex(2).stringValue; };
         m.subject = function() { return reply.descriptorAtIndex(3).stringValue; };
-        m.dateReceived = function() { return reply.descriptorAtIndex(4).dateValue; };
-        m.readStatus = function() { return reply.descriptorAtIndex(5).booleanValue; };
-        m.content = function() { return reply.descriptorAtIndex(6).stringValue; };
+        m.dateReceived = function() { return reply.descriptorAtIndex(7).dateValue; };
+        m.readStatus = function() { return reply.descriptorAtIndex(4).booleanValue; };
+        m.content = function() { return reply.descriptorAtIndex(5).stringValue; };
         """#
         let snapshot = try await runFixture(query: "unread emails", suffix: suffix)
         #expect(snapshot.messages.map(\.externalID) == ["119"])
@@ -148,7 +148,7 @@ struct MailStoreSourceTests {
         #expect(snapshot.messages[0].subject == "Project review")
         #expect(snapshot.messages[0].body == "Read the review before Friday")
         let missing = try await runFixture(query: "unread emails", suffix: suffix +
-            "\nm.dateReceived = function() { return reply.descriptorAtIndex(7).dateValue; };")
+            "\nm.dateReceived = function() { return reply.descriptorAtIndex(6).dateValue; };")
         #expect(missing.messages[0].receivedAt == nil)
         #expect(missing.messages[0].body == "Read the review before Friday")
     }

@@ -1,4 +1,5 @@
 import Foundation
+import Hub
 import LocalInference
 import MLX
 import MLXLLM
@@ -47,6 +48,16 @@ actor PhoneModelStore {
     static let shared = PhoneModelStore()
     private let maximumWeights: Int64 = 1_600_000_000
     private let maximumBundle: Int64 = 1_700_000_000
+    private var downloadClient: HubApi?
+
+    private func downloader() throws -> HubApi {
+        if let downloadClient { return downloadClient }
+        let cache = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        let client = HubApi(downloadBase: cache, endpoint: "https://huggingface.co", useOfflineMode: false)
+        downloadClient = client
+        return client
+    }
 
     func directory(for choice: PhoneModelChoice) throws -> URL {
         let support = try FileManager.default.url(for: .applicationSupportDirectory,
@@ -73,7 +84,7 @@ actor PhoneModelStore {
         // The only network request from this component downloads public files.
         // Neither user messages nor phone evidence is passed to HubApi.
         let configuration = ModelConfiguration(id: repository, revision: revision)
-        let downloaded = try await downloadModel(hub: defaultHubApi, configuration: configuration) { value in
+        let downloaded = try await downloadModel(hub: downloader(), configuration: configuration) { value in
             progress(value.fractionCompleted)
         }
         try Task.checkCancellation()
@@ -161,6 +172,7 @@ actor MLXPhoneModelProvider: LocalModelProvider {
     private let directory: URL
     private var container: ModelContainer?
     private var generating = false
+    private let offlineHub = HubApi(endpoint: "https://huggingface.co", useOfflineMode: true)
 
     init(directory: URL, name: String) {
         self.directory = directory
@@ -223,7 +235,8 @@ actor MLXPhoneModelProvider: LocalModelProvider {
         else {
             // Directory configuration loads tokenizer/config/weights locally;
             // there is no model ID here for the library to download or query.
-            model = try await LLMModelFactory.shared.loadContainer(configuration: ModelConfiguration(directory: directory))
+            model = try await LLMModelFactory.shared.loadContainer(hub: offlineHub,
+                configuration: ModelConfiguration(directory: directory))
             container = model
         }
         // UserInput is the library's Sendable value. Chat.Message in this pinned
