@@ -27,6 +27,10 @@ jobs:
         run: python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
       - name: Test
         run: swift test
+      - name: Test real CLI host startup and exclusivity
+        run: |
+          swift build --product assistantctl
+          python3 Tests/CLITests/test_host_startup.py .build/debug/assistantctl
       - name: Install and probe sandboxed model worker
         if: ${{ !cancelled() && matrix.runner == 'macos-26' }}
         run: |

@@ -11,7 +11,7 @@ final class HostLock {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        descriptor = open(fileURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        descriptor = open(fileURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw HostLockFailure("Could not open the host lock.") }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
             close(descriptor)
