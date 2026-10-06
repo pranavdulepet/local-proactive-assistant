@@ -320,6 +320,58 @@ public struct IMsgTransport: MessageTransport, MessageHistorySource, Sendable {
         )
     }
 
+    public func reconcileSubmission(
+        for entry: OutboundLedgerEntry,
+        in verifiedChatIDs: Set<TransportChatID>
+    ) async throws -> SendReceipt? {
+        guard verifiedChatIDs.contains(entry.chatID), !verifiedChatIDs.isEmpty,
+              verifiedChatIDs.count <= 16 else {
+            throw TransportFailure("Submission lookup requires verified owner chats.", retrySafe: true)
+        }
+        // imsg's AppleScript verifier inspects one resolved chat. Messages can
+        // attach a self-send to the owner's other verified phone/email alias.
+        // Read both aliases; do not issue the send again.
+        let rows = try await withThrowingTaskGroup(of: [InboundTransportMessage].self) { group in
+            for chatID in verifiedChatIDs {
+                group.addTask { try await self.submissionRows(in: chatID, since: entry.sentAt) }
+            }
+            var rows: [InboundTransportMessage] = []
+            for try await page in group { rows.append(contentsOf: page) }
+            return rows
+        }
+        return OutboundLedger.submissionReceipt(for: entry, messages: rows, in: verifiedChatIDs)
+    }
+
+    private func submissionRows(
+        in chatID: TransportChatID,
+        since startedAt: Date
+    ) async throws -> [InboundTransportMessage] {
+        let limit = 100
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let result = try await rpc(method: "messages.history", params: [
+            "chat_id": chatID.rawValue, "limit": limit, "attachments": false,
+            "start": formatter.string(from: startedAt),
+            "end": formatter.string(from: startedAt.addingTimeInterval(120)),
+        ], timeout: 3)
+        guard let rawMessages = result["messages"] as? [[String: Any]], rawMessages.count <= limit else {
+            throw TransportFailure("imsg returned an invalid submission history page.")
+        }
+        let data = try JSONSerialization.data(withJSONObject: rawMessages)
+        let messages = try JSONDecoder().decode([IMsgMessage].self, from: data)
+        let rows = try messages.map { try $0.transportMessage }
+        guard rows.allSatisfy({ $0.chatID == chatID }),
+              Set(rows.map(\.cursor)).count == rows.count else {
+            throw TransportFailure("imsg returned an invalid submission history chat or duplicate row.")
+        }
+        // A busy chat may have more than 100 rows in this window. A truncated
+        // window cannot establish that a content match was unique.
+        guard rows.count < limit else {
+            throw TransportFailure("Submission history is too busy to confirm a unique outgoing row.")
+        }
+        return rows
+    }
+
     public func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool {
         do {
             let status = try await rpc(method: "status", params: [:], timeout: 2)
@@ -546,6 +598,17 @@ public actor PollingIMsgTransport: MessageTransport {
         }
         sendTail = Task { _ = try? await operation.value }
         return try await operation.value
+    }
+
+    public func reconcileSubmission(
+        for entry: OutboundLedgerEntry,
+        in verifiedChatIDs: Set<TransportChatID>
+    ) async throws -> SendReceipt? {
+        let allowed = ownerChatIDs.isEmpty ? verifiedChatIDs : ownerChatIDs
+        guard !verifiedChatIDs.isEmpty, verifiedChatIDs.isSubset(of: allowed) else {
+            throw TransportFailure("Submission lookup included an unverified owner chat.", retrySafe: true)
+        }
+        return try await base.reconcileSubmission(for: entry, in: verifiedChatIDs)
     }
 
     public func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool {

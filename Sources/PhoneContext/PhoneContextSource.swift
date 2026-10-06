@@ -10,6 +10,8 @@ public actor PhoneContextSource {
     private let contacts = ContactsStoreSource()
     #if os(iOS)
     private let sleep = PhoneSleepSource()
+    private let activity = PhoneActivitySource()
+    private var location: PhoneLocationSource?
     #endif
 
     public init() {}
@@ -31,6 +33,49 @@ public actor PhoneContextSource {
         #endif
     }
 
+    public func requestActivityAccess() async throws {
+        #if os(iOS)
+        try await activity.requestAccess()
+        #else
+        throw LocalModelFailure("Activity context is available on iPhone only.")
+        #endif
+    }
+
+    public func activityDigest(now: Date = Date()) async throws -> PhoneActivityDigest {
+        #if os(iOS)
+        return try await activity.digest(now: now)
+        #else
+        throw LocalModelFailure("Activity context is available on iPhone only.")
+        #endif
+    }
+
+    public func requestLocationAccess() async -> Bool {
+        #if os(iOS)
+        return await locationSource().requestAccess()
+        #else
+        return false
+        #endif
+    }
+
+    public func locationDigest(now: Date = Date()) async throws -> PhoneLocationDigest {
+        #if os(iOS)
+        return try await locationSource().digest(now: now)
+        #else
+        throw LocalModelFailure("Coarse location is available on iPhone only.")
+        #endif
+    }
+
+    #if os(iOS)
+    private func locationSource() async -> PhoneLocationSource {
+        if let location { return location }
+        let source = await MainActor.run { PhoneLocationSource() }
+        // Another caller may have created the source while this actor awaited MainActor.
+        if let location { return location }
+        location = source
+        return source
+    }
+    #endif
+
     public func startSleepUpdates(_ handler: @escaping @Sendable () async -> Void) async -> Bool {
         #if os(iOS)
         return await sleep.startUpdates(handler)
@@ -45,38 +90,71 @@ public actor PhoneContextSource {
         #endif
     }
 
-    public func request(question: String, contactName: String = "", includeCalendar: Bool, includeContacts: Bool, includeSleep: Bool, now: Date = Date()) async throws -> EvidenceRequest {
+    public func request(question: String, contactName: String = "", includeCalendar: Bool, includeContacts: Bool, includeSleep: Bool,
+                        includeActivity: Bool = false, includeLocation: Bool = false, now: Date = Date()) async throws -> EvidenceRequest {
         try EvidenceRequest(question: question, records: [], coverage: []).validate()
         var records: [EvidenceRecord] = []
         var coverage = ["Phone context only. Messages and the Mac database are not accessible here."]
         let formatter = ISO8601DateFormatter()
 
         if includeContacts {
-            let status = await contacts.authorizationStatus()
-            if status == .authorized || status == .limited {
-                let name = contactName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if name.isEmpty {
-                    coverage.append("Contacts: no person selected; no contact records supplied.")
-                } else {
-                    let matches = try await contacts.contacts().filter {
-                        $0.displayName.caseInsensitiveCompare(name) == .orderedSame || $0.nickname?.caseInsensitiveCompare(name) == .orderedSame
+            do {
+                let status = await contacts.authorizationStatus()
+                if status == .authorized || status == .limited {
+                    let name = contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if name.isEmpty {
+                        coverage.append("Contacts: no person selected; no contact records supplied.")
+                    } else {
+                        let matches = try await contacts.contacts().filter {
+                            $0.displayName.caseInsensitiveCompare(name) == .orderedSame || $0.nickname?.caseInsensitiveCompare(name) == .orderedSame
+                        }
+                        if matches.count == 1, let person = matches.first {
+                            records.append(EvidenceRecord(id: "contact", source: "contacts", timestamp: now,
+                                text: EvidenceText.bounded("Name: \(person.displayName)\nPhones: \(person.phoneNumbers.joined(separator: ", "))\nEmails: \(person.emailAddresses.joined(separator: ", "))", bytes: 768),
+                                locator: EvidenceText.bounded("phone-contact:\(person.externalID)", bytes: 256), trust: "structuredSource"))
+                        }
+                        coverage.append("Contacts: \(status.rawValue); exact-name matches \(matches.count). Ambiguous people are not guessed.")
                     }
-                    if matches.count == 1, let person = matches.first {
-                        records.append(EvidenceRecord(id: "contact", source: "contacts", timestamp: now,
-                            text: EvidenceText.bounded("Name: \(person.displayName)\nPhones: \(person.phoneNumbers.joined(separator: ", "))\nEmails: \(person.emailAddresses.joined(separator: ", "))", bytes: 768),
-                            locator: EvidenceText.bounded("phone-contact:\(person.externalID)", bytes: 256), trust: "structuredSource"))
-                    }
-                    coverage.append("Contacts: \(status.rawValue); exact-name matches \(matches.count). Ambiguous people are not guessed.")
-                }
-            } else { coverage.append("Contacts: \(status.rawValue); no records read.") }
+                } else { coverage.append("Contacts: \(status.rawValue); no records read.") }
+            } catch is CancellationError { throw CancellationError() }
+            catch { coverage.append("Phone contacts: unavailable for this read; no contact supplied.") }
         }
         if includeSleep {
             #if os(iOS)
-            let result = try await sleep.summary(now: now)
-            if let record = result.record { records.append(record) }
-            coverage.append(result.coverage)
+            do {
+                let result = try await sleep.summary(now: now)
+                if let record = result.record { records.append(record) }
+                coverage.append(result.coverage)
+            } catch is CancellationError { throw CancellationError() }
+            catch { coverage.append("Phone sleep: unavailable for this read; no summary supplied.") }
             #else
             coverage.append("Health: unavailable on this platform.")
+            #endif
+        }
+        if includeActivity {
+            #if os(iOS)
+            do {
+                let result = try await activity.digest(now: now)
+                records.append(EvidenceRecord(id: "activity", source: "health", timestamp: result.end,
+                    text: EvidenceText.bounded(result.summary, bytes: 768), locator: "phone-health:activity-today", trust: "derivedSummary"))
+                coverage.append(result.coverage)
+            } catch is CancellationError { throw CancellationError() }
+            catch { coverage.append("Phone activity: unavailable for this read; no totals supplied.") }
+            #else
+            coverage.append("Phone activity: unavailable on this platform.")
+            #endif
+        }
+        if includeLocation {
+            #if os(iOS)
+            do {
+                let result = try await locationDigest(now: now)
+                records.append(EvidenceRecord(id: "location", source: "location", timestamp: result.capturedAt,
+                    text: EvidenceText.bounded(result.summary, bytes: 768), locator: "phone-location:coarse-snapshot", trust: "structuredSource"))
+                coverage.append("Phone location: one recent coarse snapshot from the foreground companion only; no continuous tracking or street address.")
+            } catch is CancellationError { throw CancellationError() }
+            catch { coverage.append("Phone location: unavailable for this read. Location must be enabled separately in the foreground companion.") }
+            #else
+            coverage.append("Phone location: unavailable on this platform.")
             #endif
         }
         if includeCalendar {

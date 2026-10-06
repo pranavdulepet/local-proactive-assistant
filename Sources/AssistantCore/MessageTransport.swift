@@ -139,10 +139,20 @@ public protocol MessageTransport: Sendable {
         _ message: OutboundTransportMessage,
         to chatID: TransportChatID
     ) async throws -> SendReceipt
+    /// Find an already submitted outgoing row without attempting another send.
+    /// A receipt confirms a local Messages row, not delivery to the recipient's phone.
+    func reconcileSubmission(
+        for entry: OutboundLedgerEntry,
+        in verifiedChatIDs: Set<TransportChatID>
+    ) async throws -> SendReceipt?
     /// Best effort; true means requested, not proof that the recipient rendered it.
     func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool
 }
 
 public extension MessageTransport {
+    func reconcileSubmission(
+        for entry: OutboundLedgerEntry,
+        in verifiedChatIDs: Set<TransportChatID>
+    ) async throws -> SendReceipt? { nil }
     func setTyping(_ typing: Bool, to chatID: TransportChatID) async -> Bool { false }
 }

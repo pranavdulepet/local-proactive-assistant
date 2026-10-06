@@ -6,6 +6,7 @@ public struct MacContextSource: ReadContextSource {
     private let files: FileContextReader
     private let runner: ContextCommandRunner
     private let reminders: RemindersContextReader
+    private let photos: PhotosContextReader
 
     /// Additional roots must be chosen by the owner locally, never by a model tool call.
     /// A nil list uses the usual document folders and the locally available iCloud Drive.
@@ -15,10 +16,12 @@ public struct MacContextSource: ReadContextSource {
     }
 
     init(allowedRoots: [URL], runner: ContextCommandRunner,
-         reminderStore: any ReminderStore = EventKitReminderStore(), requestPermissions: Bool = false) {
+         reminderStore: any ReminderStore = EventKitReminderStore(),
+         photoStore: any PhotoStore = NativePhotoStore(), requestPermissions: Bool = false) {
         self.runner = runner
         files = FileContextReader(roots: allowedRoots, runner: runner)
         reminders = RemindersContextReader(store: reminderStore, requestPermissions: requestPermissions)
+        photos = PhotosContextReader(store: photoStore, requestPermissions: requestPermissions)
     }
 
     public static var defaultRoots: [URL] {
@@ -48,9 +51,11 @@ public struct MacContextSource: ReadContextSource {
                 result = try AppContextSnapshot.decode(output.data).result(source: call.tool.rawValue)
             case .reminders:
                 result = try await reminders.read(query: call.query)
+            case .photos:
+                result = try await photos.read(call)
             case .deviceInfo:
                 result = await deviceInfo()
-            case .searchIndex, .mailInbox:
+            case .searchIndex, .mailInbox, .messages, .calendar, .contacts, .phoneContext:
                 result = ContextToolResult(records: [], coverage: ["This local Mac reader does not provide \(call.tool.rawValue); the host's Messages/Calendar/Contacts index and Mail adapter provide those reads."])
             }
         } catch is CancellationError {

@@ -42,16 +42,13 @@ public struct CalendarAgendaService: Sendable {
             return "Could not determine the requested Calendar day."
         }
 
-        let events = try await store.currentObservations(
-            source: .calendar, trust: .structuredSource,
-            from: start, to: end.addingTimeInterval(-0.001), limit: 50
-        ).filter { !$0.text.contains("Status: canceled") }
+        let events = try await store.calendarObservations(from: start, to: end, limit: 50)
 
         let formatter = DateFormatter()
         formatter.timeZone = calendar.timeZone
         formatter.timeStyle = .short
         var lines = [events.isEmpty
-            ? "I don't see any events starting \(dayName)."
+            ? "I don't see any indexed events \(dayName)."
             : "Here's what's on your calendar \(dayName):"]
         for event in events.prefix(12) {
             let title = event.text.split(separator: "\n").first.map(String.init) ?? "Untitled event"

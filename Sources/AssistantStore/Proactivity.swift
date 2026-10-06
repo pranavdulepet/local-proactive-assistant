@@ -96,6 +96,10 @@ public struct ProactiveReminderService: Sendable {
             )
             return true
         } catch {
+            if let receipt = await ledger.confirmedReceipt(requestID: reservation.id) {
+                try await store.finishReminder(id: reservation.id, outcome: "submitted", messageGUID: receipt.messageGUID)
+                return true
+            }
             // Even a missing receipt can follow a successful external side effect.
             try await store.finishReminder(id: reservation.id, outcome: "unknown", messageGUID: nil)
             throw error

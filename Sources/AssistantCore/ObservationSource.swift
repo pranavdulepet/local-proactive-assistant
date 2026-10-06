@@ -4,4 +4,5 @@ public enum ObservationSource: String, Codable, CaseIterable, Hashable, Sendable
     case contacts
     case mail
     case health
+    case location
 }

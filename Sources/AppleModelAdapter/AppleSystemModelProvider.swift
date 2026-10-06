@@ -97,7 +97,10 @@ public actor AppleSystemModelProvider: LocalModelProvider {
             try Task.checkCancellation()
             let plan = ContextPlan(calls: response.content.calls.map { call in
                 ContextToolCall(tool: call.tool.contextTool,
-                    query: call.query?.trimmingCharacters(in: .whitespacesAndNewlines), path: call.path)
+                    query: call.query?.trimmingCharacters(in: .whitespacesAndNewlines), path: call.path,
+                    person: call.person?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    direction: call.direction?.value, from: call.from, to: call.to,
+                    limit: call.limit, offset: call.offset)
             }, reply: response.content.reply)
             try plan.validate(for: request)
             return plan
@@ -179,6 +182,11 @@ private struct GeneratedAnswer {
 @available(macOS 26, iOS 26, *)
 @Generable
 private enum GeneratedContextTool {
+    case messages
+    case calendar
+    case contacts
+    case photos
+    case phoneContext
     case searchIndex
     case mailInbox
     case searchFiles
@@ -189,6 +197,11 @@ private enum GeneratedContextTool {
 
     var contextTool: ContextTool {
         switch self {
+        case .messages: .messages
+        case .calendar: .calendar
+        case .contacts: .contacts
+        case .photos: .photos
+        case .phoneContext: .phoneContext
         case .searchIndex: .searchIndex
         case .mailInbox: .mailInbox
         case .searchFiles: .searchFiles
@@ -202,13 +215,40 @@ private enum GeneratedContextTool {
 
 @available(macOS 26, iOS 26, *)
 @Generable
+private enum GeneratedMessageDirection {
+    case inbound
+    case outbound
+    case any
+    var value: String {
+        switch self {
+        case .inbound: "inbound"
+        case .outbound: "outbound"
+        case .any: "any"
+        }
+    }
+}
+
+@available(macOS 26, iOS 26, *)
+@Generable
 private struct GeneratedContextCall {
     @Guide(description: "An available read tool relevant to the latest message.")
     var tool: GeneratedContextTool
-    @Guide(description: "A concise search query; nil for readFile and deviceInfo, and optional for inbox, notes and reminders.")
+    @Guide(description: "Literal content keywords, not a full question. Photos accepts photos/videos/screenshots/favorites or nil. phoneContext accepts sleep/activity/location/all or nil for latest shared snapshots. Nil for readFile/deviceInfo or unfiltered messages; optional for inbox, notes and reminders.")
     var query: String?
     @Guide(description: "A permitted absolute file path only for readFile; nil for all other tools.")
     var path: String?
+    @Guide(description: "Literal full contact name/nickname or exact phone/email handle for messages, calendar or contacts; nil for other tools. Preserve all supplied name tokens.")
+    var person: String?
+    @Guide(description: "Messages only: inbound for what the participant said, outbound for what the owner said, any for both sides; nil for other sources.")
+    var direction: GeneratedMessageDirection?
+    @Guide(description: "Calendar requires this inclusive start boundary. Messages and Photos may use it. ISO YYYY-MM-DD in the host timezone or ISO8601 timestamp with an offset; nil for other tools.")
+    var from: String?
+    @Guide(description: "Calendar requires this exclusive end boundary; use the following local day to read one day. Messages and Photos may use it. ISO YYYY-MM-DD or ISO8601 timestamp; nil for other tools.")
+    var to: String?
+    @Guide(description: "At most 8 returned records for messages/calendar/contacts/mailInbox/photos, and at least 1. Use 1 for a latest-message question; nil for other tools.")
+    var limit: Int?
+    @Guide(description: "Nonnegative continuation offset for messages/calendar/contacts/mailInbox only; use the source's reported next offset when paging. Nil for other tools.")
+    var offset: Int?
 }
 
 @available(macOS 26, iOS 26, *)

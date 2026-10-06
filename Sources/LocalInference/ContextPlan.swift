@@ -2,31 +2,77 @@ import Foundation
 
 /// Read capabilities exposed by the host. There is no command, network, recipient or write tool.
 public enum ContextTool: String, Codable, CaseIterable, Hashable, Sendable {
-    case searchIndex, mailInbox, searchFiles, readFile, notes, reminders, deviceInfo
+    case phoneContext, photos, messages, calendar, contacts, searchIndex, mailInbox, searchFiles, readFile, notes, reminders, deviceInfo
 }
 
 public struct ContextToolCall: Codable, Equatable, Sendable {
     public let tool: ContextTool
     public let query: String?
     public let path: String?
+    public let person: String?
+    public let direction: String?
+    public let from: String?
+    public let to: String?
+    public let limit: Int?
+    public let offset: Int?
 
-    public init(tool: ContextTool, query: String? = nil, path: String? = nil) {
-        self.tool = tool
-        self.query = query
-        self.path = path
+    public init(tool: ContextTool, query: String? = nil, path: String? = nil,
+                person: String? = nil, direction: String? = nil, from: String? = nil,
+                to: String? = nil, limit: Int? = nil, offset: Int? = nil) {
+        self.tool = tool; self.query = query; self.path = path
+        self.person = person; self.direction = direction; self.from = from; self.to = to
+        self.limit = limit; self.offset = offset
     }
 
     public func validate() throws {
-        if let query {
-            guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  query.utf8.count <= 256, !query.contains("\0") else {
-                throw LocalModelFailure("Invalid context search query.")
+        for (value, maximum) in [(query, 256), (person, 128), (from, 40), (to, 40)] {
+            if let value {
+                guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      value.utf8.count <= maximum, !value.contains("\0") else {
+                    throw LocalModelFailure("Invalid read argument.")
+                }
+            }
+        }
+        if let limit, !(1...8).contains(limit) { throw LocalModelFailure("Read limit must be 1–8.") }
+        if let offset, !(0...(tool == .mailInbox ? 5_000 : 100)).contains(offset) {
+            throw LocalModelFailure("Read offset exceeds the source page limit.")
+        }
+        if let direction {
+            guard tool == .messages, ["inbound", "outbound", "any"].contains(direction) else {
+                throw LocalModelFailure("Message direction must be inbound, outbound or any.")
+            }
+        }
+        if person != nil, ![ContextTool.messages, .calendar, .contacts].contains(tool) {
+            throw LocalModelFailure("This read does not accept a person filter.")
+        }
+        if from != nil || to != nil {
+            guard tool == .messages || tool == .calendar || tool == .photos else {
+                throw LocalModelFailure("This read does not accept a date interval.")
+            }
+        }
+        if tool == .phoneContext, let query,
+           !["sleep", "activity", "location", "all"].contains(query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            throw LocalModelFailure("Phone context supports sleep, activity, location or all.")
+        }
+        if tool == .photos, let query,
+           !["photos", "videos", "screenshots", "favorites"].contains(query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            throw LocalModelFailure("Photos metadata supports photos, videos, screenshots or favorites.")
+        }
+        if tool == .calendar, from == nil || to == nil {
+            throw LocalModelFailure("Calendar reads require explicit from and to dates.")
+        }
+        if tool == .contacts, person == nil && query == nil {
+            throw LocalModelFailure("Contact lookup requires a name or handle.")
+        }
+        if limit != nil || offset != nil {
+            guard [ContextTool.messages, .calendar, .contacts, .mailInbox, .photos].contains(tool), tool != .photos || offset == nil else {
+                throw LocalModelFailure("This read does not support paging.")
             }
         }
         if tool == .readFile {
             guard query == nil, let path, path.hasPrefix("/"), path.utf8.count <= 1_024,
                   !path.contains("\0"), !path.split(separator: "/").contains("..") else {
-                throw LocalModelFailure("File reads require a bounded absolute path without traversal.")
+                throw LocalModelFailure("File reads require an absolute path without traversal.")
             }
         } else {
             guard path == nil else { throw LocalModelFailure("Only file reads accept a path.") }
@@ -131,7 +177,7 @@ public struct ContextPlan: Codable, Equatable, Sendable {
             guard data.count <= 4_096,
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   Set(object.keys).isSubset(of: ["calls", "reply"]), let calls = object["calls"] as? [[String: Any]],
-                  calls.allSatisfy({ Set($0.keys).isSubset(of: ["tool", "query", "path"]) }) else {
+                  calls.allSatisfy({ Set($0.keys).isSubset(of: ["tool", "query", "path", "person", "direction", "from", "to", "limit", "offset"]) }) else {
                 throw ContextPlanFailure("The local model returned an invalid context plan.")
             }
             let plan = try JSONDecoder().decode(ContextPlan.self, from: data)

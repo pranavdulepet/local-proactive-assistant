@@ -217,8 +217,8 @@ class GuidedStarterTests(unittest.TestCase):
         result, calls = self.run_start()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("host prepare-access", calls)
-        marker = self.profile.with_name("access-prepared-v2.txt")
-        self.assertEqual(marker.read_text(), "2\n")
+        marker = self.profile.with_name("access-prepared-v3.txt")
+        self.assertEqual(marker.read_text(), "3\n")
         result, calls = self.run_start()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.count("host prepare-access"), 1)
@@ -228,7 +228,7 @@ class GuidedStarterTests(unittest.TestCase):
         result, calls = self.run_start(FIXTURE_SOURCE_DENIED="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("host serve", calls)
-        self.assertFalse(self.profile.with_name("access-prepared-v2.txt").exists())
+        self.assertFalse(self.profile.with_name("access-prepared-v3.txt").exists())
 
     def test_user_can_skip_source_setup_for_now(self):
         self.write_profile()
@@ -325,7 +325,7 @@ class GuidedStarterTests(unittest.TestCase):
         self.write_profile()
         target = self.root / "empty-user-file"
         target.touch()
-        marker = self.profile.with_name("access-prepared-v2.txt")
+        marker = self.profile.with_name("access-prepared-v3.txt")
         marker.symlink_to(target)
         result, calls = self.run_start()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -340,7 +340,7 @@ class GuidedStarterTests(unittest.TestCase):
         result, calls = self.run_start()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("host prepare-access", calls)
-        self.assertEqual(self.profile.with_name("access-prepared-v2.txt").read_text(), "2\n")
+        self.assertEqual(self.profile.with_name("access-prepared-v3.txt").read_text(), "3\n")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,12 @@ public struct EvidenceRetriever: Sendable {
     private let store: ObservationStore
     public init(store: ObservationStore) { self.store = store }
 
+    /// Source selection and scopes are explicit model-tool arguments. This entry
+    /// point does not infer a source, person, direction or date from query words.
+    public func read(_ call: ContextToolCall) async throws -> ContextToolResult {
+        try await StructuredContextReader(store: store).execute(call)
+    }
+
     private static func searchTerms(_ question: String) -> [String] {
         let stopWords: Set<String> = [
             "what", "when", "where", "why", "how", "who", "which", "the", "and", "with",
@@ -95,7 +101,7 @@ public struct EvidenceRetriever: Sendable {
         } else if !words.isDisjoint(with: ["calendar", "schedule", "agenda", "meeting", "meetings", "appointment", "appointments", "event", "events", "availability", "plans"]) ||
             (words.contains("my") && !words.isDisjoint(with: ["today", "tomorrow", "week", "day"])) {
             let (start, end) = Self.calendarWindow(normalized, now: now)
-            observations = try await store.currentObservations(source: .calendar, trust: .structuredSource, from: start, to: end.addingTimeInterval(-0.001), limit: 8)
+            observations = try await store.calendarObservations(from: start, to: end, limit: 8)
         } else {
             let terms = Self.searchTerms(question)
             if !words.isDisjoint(with: ["contact", "contacts", "phone", "number", "email", "address"]),

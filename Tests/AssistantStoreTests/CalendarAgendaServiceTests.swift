@@ -56,7 +56,7 @@ struct CalendarAgendaServiceTests {
         let reply = try #require(try await CalendarAgendaService(
             store: store, clock: { now }
         ).response(to: "What's on my schedule today?"))
-        #expect(reply.contains("I don't see any events starting today."))
+        #expect(reply.contains("I don't see any indexed events today."))
         #expect(reply.contains("Calendar data may be incomplete"))
         #expect(!reply.contains("Deleted events are not yet reconciled."))
     }

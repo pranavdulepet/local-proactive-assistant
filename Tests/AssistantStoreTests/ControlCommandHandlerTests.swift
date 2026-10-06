@@ -28,7 +28,7 @@ struct ControlCommandHandlerTests {
         )
         let handler = ControlCommandHandler(store: try ObservationStore(), inbox: inbox)
         #expect(try await handler.response(to: "/status")?.contains(
-            "Assistant replies: 1 pending, 0 uncertain, 0 failed."
+            "Replies: 1 waiting, 0 awaiting local confirmation, 0 failed."
         ) == true)
     }
 
@@ -120,7 +120,7 @@ struct ControlCommandHandlerTests {
         try await indexingStore.refreshCoverage(
             for: .messages, status: .partial, limitations: [], at: now
         )
-        #expect(try await handler.response(to: "/status")?.contains("messages: partial") == true)
+        #expect(try await handler.response(to: "/status")?.contains("Messages:") == true)
 
         _ = try await handler.response(to: "/resume")
         #expect(try await indexingStore.proactivityStatus().paused == false)
@@ -176,3 +176,4 @@ struct ControlCommandHandlerTests {
         return (store, commitment)
     }
 }
+

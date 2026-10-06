@@ -17,9 +17,13 @@ public protocol LocalModelProvider: Sendable {
     func answer(_ request: EvidenceRequest) async throws -> GroundedAnswer
     func chat(_ request: ChatRequest) async throws -> ChatReply
     func planContext(_ request: ContextPlanRequest) async throws -> ContextPlan
+    func agentStep(_ request: AgentRequest) async throws -> AgentStep
 }
 
 public extension LocalModelProvider {
+    func agentStep(_ request: AgentRequest) async throws -> AgentStep {
+        throw AgentToolsUnavailable()
+    }
     func planContext(_ request: ContextPlanRequest) async throws -> ContextPlan {
         throw ContextPlanningUnavailable()
     }
@@ -164,7 +168,7 @@ public struct ChatRequest: Codable, Equatable, Sendable {
               message.utf8.count <= 4_096,
               history.count <= 8,
               history.allSatisfy({ !$0.text.isEmpty && $0.text.utf8.count <= 2_048 }),
-              records.count <= 8,
+              records.count <= 144,
               Set(records.map(\.id)).count == records.count,
               records.allSatisfy({ !$0.id.isEmpty && $0.id.utf8.count <= 80 &&
                   $0.source.utf8.count <= 40 && $0.trust.utf8.count <= 40 &&
@@ -174,7 +178,7 @@ public struct ChatRequest: Codable, Equatable, Sendable {
             throw LocalModelFailure("Conversation exceeds local context limits.")
         }
         if let contextReads {
-            guard contextReads.count <= 3 else { throw LocalModelFailure("Conversation exceeds its read receipt limit.") }
+            guard contextReads.count <= 6 else { throw LocalModelFailure("Conversation exceeds its read receipt limit.") }
             for read in contextReads { try read.validate() }
         }
     }
@@ -200,7 +204,7 @@ public struct ChatReply: Codable, Equatable, Sendable {
     public init(text: String) { self.text = text }
     public func validate() throws {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              text.utf8.count <= 2_048 else { throw LocalModelFailure("Invalid local conversation reply.") }
+              text.utf8.count <= 8_192 else { throw LocalModelFailure("Invalid local conversation reply.") }
     }
 
     public func validate(for request: ChatRequest) throws {

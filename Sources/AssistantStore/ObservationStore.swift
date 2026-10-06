@@ -42,6 +42,7 @@ public actor ObservationStore {
 
         do {
             try Self.execute(Self.schema, on: database)
+            try Self.backfillCalendarIntervals(on: database)
             if let fileURL {
                 try FileManager.default.setAttributes(
                     [.posixPermissions: 0o600],
@@ -62,6 +63,10 @@ public actor ObservationStore {
         let cursorParts = try sourceCursor(for: .health)?.split(separator: ":") ?? []
         if cursorParts.count == 2, cursorParts[0] == envelope.deviceID.uuidString,
            let previous = Int64(cursorParts[1]), envelope.sequence <= previous { return previous }
+        let deviceChanged = cursorParts.count == 2 && cursorParts[0] != envelope.deviceID.uuidString
+        let activityEnabled = envelope.activityEnabled ?? (deviceChanged ? false : nil)
+        let locationEnabled = envelope.locationEnabled ?? (deviceChanged ? false : nil)
+        let previousHealthCoverage = try sourceCoverage(for: .health)
         try execute("BEGIN IMMEDIATE")
         do {
             let formatter = ISO8601DateFormatter()
@@ -74,16 +79,55 @@ public actor ObservationStore {
                 } else { text = "" }
                 let observation = Observation(source: .health, externalID: "phone-sleep:\(hours)",
                     versionHash: "\(envelope.deviceID):\(envelope.sequence):\(hours)", sourceRevision: (try current(source: .health, externalID: "phone-sleep:\(hours)"))?.sourceRevision.advanced(by: 1) ?? 1,
-                    sourceTimestamp: envelope.createdAt, trust: .structuredSource, text: text,
+                    sourceTimestamp: item?.end ?? envelope.createdAt, trust: .structuredSource, text: text,
                     locator: "phone-health:sleep-\(hours)h", tombstone: minutes == nil || !envelope.sleepEnabled)
+                _ = try recordInsideTransaction(observation)
+            }
+            if let enabled = activityEnabled {
+                let observation = Observation(source: .health, externalID: "phone-activity:today",
+                    versionHash: "\(envelope.deviceID):\(envelope.sequence):activity",
+                    sourceRevision: (try current(source: .health, externalID: "phone-activity:today"))?.sourceRevision.advanced(by: 1) ?? 1,
+                    sourceTimestamp: envelope.activity?.end ?? envelope.createdAt, trust: .structuredSource,
+                    text: enabled ? envelope.activity?.summary ?? "" : "",
+                    locator: "phone-health:activity-today", tombstone: !enabled || envelope.activity == nil)
                 _ = try recordInsideTransaction(observation)
             }
             try saveCursor("\(envelope.deviceID.uuidString):\(envelope.sequence)", for: .health)
             let detail = envelope.sleepEnabled
-                ? "Derived phone sleep summaries only; raw samples stay on the phone. No readable samples may mean missing data or denied read access; it does not mean zero sleep. Collected \(formatter.string(from: envelope.createdAt))."
-                : "Phone sleep sharing is disabled."
-            try refreshCoverage(for: .health, status: envelope.sleepEnabled ? .partial : .unavailable,
-                limitations: [detail], at: Date())
+                ? "Phone sleep: derived summaries only; raw samples stay on the phone. No readable samples may mean missing data or denied read access; it does not mean zero sleep. Collected \(formatter.string(from: envelope.sleep.map(\.end).max() ?? envelope.createdAt))."
+                : "Phone sleep: sharing is disabled."
+            var healthLimitations = [detail]
+            if let enabled = activityEnabled {
+                if enabled, let activity = envelope.activity {
+                    healthLimitations.append(activity.coverage + " Collected \(formatter.string(from: activity.end)).")
+                } else {
+                    healthLimitations.append(enabled ? "Phone activity: enabled, but unavailable for this read; no totals supplied. Collected \(formatter.string(from: envelope.createdAt))."
+                        : "Phone activity: sharing is disabled.")
+                }
+            } else {
+                healthLimitations += previousHealthCoverage?.limitations.filter { $0.hasPrefix("Phone activity:") } ?? []
+            }
+            let activityShared = activityEnabled ?? healthLimitations.contains { $0.hasPrefix("Phone activity:") && !$0.contains("sharing is disabled") }
+            try refreshCoverage(for: .health, status: envelope.sleepEnabled || activityShared ? .partial : .unavailable,
+                limitations: healthLimitations, at: envelope.createdAt)
+            if let enabled = locationEnabled {
+                let location = envelope.location
+                let observation = Observation(source: .location, externalID: "phone-location:coarse",
+                    versionHash: "\(envelope.deviceID):\(envelope.sequence):location",
+                    sourceRevision: (try current(source: .location, externalID: "phone-location:coarse"))?.sourceRevision.advanced(by: 1) ?? 1,
+                    sourceTimestamp: location?.capturedAt ?? envelope.createdAt, trust: .structuredSource,
+                    text: enabled ? location?.summary ?? "" : "", locator: "phone-location:coarse-snapshot",
+                    tombstone: !enabled || location == nil)
+                _ = try recordInsideTransaction(observation)
+                try saveCursor("\(envelope.deviceID.uuidString):\(envelope.sequence)", for: .location)
+                let detail: String
+                if enabled, let location {
+                    detail = "One coarse phone location snapshot captured \(formatter.string(from: location.capturedAt)); coordinates rounded to an approximately 1 km grid. Queued uploads retain their original capture time. No continuous tracking or street address."
+                } else { detail = enabled ? "Phone location is enabled, but a recent readable fix was unavailable. Open the foreground companion to collect one."
+                    : "Phone location sharing is disabled." }
+                try refreshCoverage(for: .location, status: enabled && location != nil ? .partial : .unavailable,
+                    limitations: [detail], at: location?.capturedAt ?? envelope.createdAt)
+            }
             try execute("COMMIT")
             return envelope.sequence
         } catch { try? execute("ROLLBACK"); throw error }
@@ -720,6 +764,85 @@ public actor ObservationStore {
         try ObservationSource.allCases.compactMap { try sourceCoverage(for: $0) }
     }
 
+    /// Apply person, direction, topic and time predicates before the newest-message
+    /// limit. FTS relevance alone cannot answer what somebody said most recently.
+    public func recallMessages(
+        matchingAnyHandle handles: Set<String> = [], direction: String = "any",
+        topicQuery: String? = nil, from start: Date? = nil, to end: Date? = nil,
+        limit: Int = 8, offset: Int = 0
+    ) throws -> [Observation] {
+        guard ["any", "inbound", "outbound"].contains(direction), (1...8).contains(limit), (0...100).contains(offset) else {
+            throw ObservationStoreFailure("Invalid message recall bounds")
+        }
+        return try scopedObservations(source: .messages, handles: handles, direction: direction,
+            topicQuery: topicQuery, from: start, to: end, overlapIntervals: false,
+            limit: limit, offset: offset)
+    }
+
+    /// Calendar events overlap [start,end); an event ending at start is excluded.
+    /// Older point-only observations remain usable when their start is in the range.
+    public func calendarObservations(
+        from start: Date, to end: Date, matchingAnyHandle handles: Set<String> = [], topicQuery: String? = nil,
+        limit: Int = 8, offset: Int = 0
+    ) throws -> [Observation] {
+        guard start < end, (1...100).contains(limit), (0...100).contains(offset) else {
+            throw ObservationStoreFailure("Invalid Calendar read bounds")
+        }
+        return try scopedObservations(source: .calendar, handles: handles, direction: "any",
+            topicQuery: topicQuery, from: start, to: end, overlapIntervals: true,
+            limit: limit, offset: offset)
+    }
+
+    private func scopedObservations(
+        source: ObservationSource, handles: Set<String>, direction: String,
+        topicQuery: String?, from start: Date?, to end: Date?, overlapIntervals: Bool,
+        limit: Int, offset: Int
+    ) throws -> [Observation] {
+        let sortedHandles = handles.sorted()
+        let placeholders = Array(repeating: "?", count: handles.count).joined(separator: ",")
+        let handleFilter = handles.isEmpty ? "" : "AND EXISTS (SELECT 1 FROM observation_handles oh WHERE oh.observation_id = o.id AND oh.handle IN (\(placeholders)))"
+        let topicFilter = topicQuery == nil ? "" : "AND EXISTS (SELECT 1 FROM observation_fts WHERE observation_fts.observation_id = o.id AND observation_fts MATCH ?)"
+        let fromFilter = overlapIntervals
+            ? "AND (CASE WHEN i.end_timestamp > o.source_timestamp THEN i.end_timestamp > ? ELSE o.source_timestamp >= ? END)"
+            : "AND (? IS NULL OR o.source_timestamp >= ?)"
+        let calendarFilter = overlapIntervals ? "AND o.trust = 'structuredSource' AND o.text NOT LIKE '%' || char(10) || 'Status: canceled' || char(10) || '%'" : ""
+        let sql = """
+        SELECT o.id, o.source, o.external_id, o.version_hash, o.source_revision,
+               o.observed_at, o.source_timestamp, o.trust, o.text, o.locator, o.tombstone
+        FROM observation_heads h JOIN observations o ON o.id = h.observation_id
+        LEFT JOIN observation_intervals i ON i.observation_id = o.id
+        WHERE o.source = ? AND o.tombstone = 0
+        AND (? = 'any' OR (? = 'outbound' AND o.trust = 'ownerAuthored')
+             OR (? = 'inbound' AND o.trust IN ('knownExternal', 'unknownExternal')))
+        \(fromFilter)
+        AND (? IS NULL OR o.source_timestamp < ?)
+        \(calendarFilter) \(handleFilter) \(topicFilter)
+        ORDER BY o.source_timestamp \(overlapIntervals ? "ASC" : "DESC"), o.source_revision DESC, o.external_id
+        LIMIT ? OFFSET ?
+        """
+        let statement = try prepare(sql)
+        defer { sqlite3_finalize(statement) }
+        try bind(source.rawValue, at: 1, to: statement)
+        for index in 2...4 { try bind(direction, at: Int32(index), to: statement) }
+        try bind(start?.timeIntervalSince1970, at: 5, to: statement)
+        try bind(start?.timeIntervalSince1970, at: 6, to: statement)
+        try bind(end?.timeIntervalSince1970, at: 7, to: statement)
+        try bind(end?.timeIntervalSince1970, at: 8, to: statement)
+        var index: Int32 = 9
+        for handle in sortedHandles { try bind(handle, at: index, to: statement); index += 1 }
+        if let topicQuery { try bind(topicQuery, at: index, to: statement); index += 1 }
+        try bind(limit, at: index, to: statement)
+        try bind(offset, at: index + 1, to: statement)
+        var result: [Observation] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW: result.append(try decodeObservation(statement))
+            case SQLITE_DONE: return result
+            default: throw failure("Could not read scoped \(source.rawValue) observations")
+            }
+        }
+    }
+
     public func search(
         _ query: String,
         sources: Set<ObservationSource> = Set(ObservationSource.allCases),
@@ -794,6 +917,13 @@ public actor ObservationStore {
             try insertSearchText(id: storedID, text: observation.text)
         }
         try insertHandles(observation.handles, observationID: storedID)
+        if let end = observation.sourceEndTimestamp ?? (observation.source == .calendar ? Self.calendarEnd(in: observation.text) : nil) {
+            let interval = try prepare("INSERT OR IGNORE INTO observation_intervals (observation_id, end_timestamp) VALUES (?, ?)")
+            defer { sqlite3_finalize(interval) }
+            try bind(storedID, at: 1, to: interval)
+            try bind(end.timeIntervalSince1970, at: 2, to: interval)
+            try step(interval, operation: "index observation interval")
+        }
         try updateHead(
             source: observation.source,
             externalID: observation.externalID,
@@ -1021,12 +1151,69 @@ public actor ObservationStore {
             sourceRevision: sqlite3_column_int64(statement, offset + 4),
             observedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, offset + 5)),
             sourceTimestamp: sourceTimestamp,
+            sourceEndTimestamp: try intervalEnd(for: id.uuidString),
             trust: trust,
             handles: try handles(for: id.uuidString),
             text: try text(at: offset + 8, from: statement),
             locator: try text(at: offset + 9, from: statement),
             tombstone: sqlite3_column_int(statement, offset + 10) != 0
         )
+    }
+
+    private func intervalEnd(for observationID: String) throws -> Date? {
+        let statement = try prepare("SELECT end_timestamp FROM observation_intervals WHERE observation_id = ?")
+        defer { sqlite3_finalize(statement) }
+        try bind(observationID, at: 1, to: statement)
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW: return optionalDate(at: 0, from: statement)
+        case SQLITE_DONE: return nil
+        default: throw failure("Could not read observation interval")
+        }
+    }
+
+    private static func calendarEnd(in text: String) -> Date? {
+        guard let line = text.split(separator: "\n").first(where: { $0.hasPrefix("End: ") }) else { return nil }
+        let value = String(line.dropFirst(5))
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions.insert(.withFractionalSeconds)
+        return formatter.date(from: value)
+    }
+
+    /// Existing stores already contain fixed End lines from CalendarIngestor. Preserve
+    /// those intervals when upgrading rather than losing overnight events until refresh.
+    private static func backfillCalendarIntervals(on database: OpaquePointer) throws {
+        var statement: OpaquePointer?
+        let sql = """
+        SELECT o.id, o.text FROM observation_heads h JOIN observations o ON o.id = h.observation_id
+        WHERE o.source = 'calendar' AND o.tombstone = 0
+        AND NOT EXISTS (SELECT 1 FROM observation_intervals i WHERE i.observation_id = o.id)
+        """
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw ObservationStoreFailure("Could not read legacy Calendar intervals")
+        }
+        defer { sqlite3_finalize(statement) }
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_DONE: return
+            case SQLITE_ROW:
+                guard let idValue = sqlite3_column_text(statement, 0), let textValue = sqlite3_column_text(statement, 1),
+                      let end = calendarEnd(in: String(cString: textValue)) else { continue }
+                let id = String(cString: idValue)
+                var insert: OpaquePointer?
+                guard sqlite3_prepare_v2(database, "INSERT OR IGNORE INTO observation_intervals (observation_id, end_timestamp) VALUES (?, ?)", -1, &insert, nil) == SQLITE_OK else {
+                    throw ObservationStoreFailure("Could not upgrade Calendar intervals")
+                }
+                defer { sqlite3_finalize(insert) }
+                let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+                guard sqlite3_bind_text(insert, 1, id, -1, transient) == SQLITE_OK,
+                      sqlite3_bind_double(insert, 2, end.timeIntervalSince1970) == SQLITE_OK,
+                      sqlite3_step(insert) == SQLITE_DONE else {
+                    throw ObservationStoreFailure("Could not save upgraded Calendar intervals")
+                }
+            default: throw ObservationStoreFailure("Could not scan legacy Calendar intervals")
+            }
+        }
     }
 
     private func decodeCommitment(_ statement: OpaquePointer) throws -> CommitmentAssertion {
@@ -1236,6 +1423,11 @@ public actor ObservationStore {
         observation_id TEXT NOT NULL REFERENCES observations(id),
         source_revision INTEGER NOT NULL,
         PRIMARY KEY (source, external_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS observation_intervals (
+        observation_id TEXT PRIMARY KEY REFERENCES observations(id),
+        end_timestamp REAL NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS source_cursors (

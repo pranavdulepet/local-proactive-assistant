@@ -127,7 +127,7 @@ class StarterTests(unittest.TestCase):
     def test_private_server_ignores_inherited_endpoint(self):
         result, calls, host = self.run_starter()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(host, "http://127.0.0.1:11435/v1\nqwen3.8:27b-q4_K_M\n")
+        self.assertEqual(host, "http://127.0.0.1:11435\nqwen3.8:27b-q4_K_M\n")
         self.assertEqual(calls.count("ollama serve"), 1)
 
     def test_old_runtime_upgrades_and_retries_once(self):

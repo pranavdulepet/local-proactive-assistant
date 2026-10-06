@@ -60,32 +60,32 @@ public struct ControlCommandHandler: Sendable {
             return "Proactive reminders enabled: at most one per day, quiet hours 10 PM–8 AM, no repeats."
         case .status:
             let status = try await store.proactivityStatus()
-            var lines = ["Proactive reminders: \(status.paused ? "paused" : "enabled").", "Last gate: \(status.lastGate)."]
-            if let delivery = status.lastDelivery { lines.append("Last submission: \(delivery) (not a delivery confirmation).") }
-            if let checked = status.checkedAt { lines.append("Policy checked: \(Self.timestamp(checked)).") }
-            for source in ObservationSource.allCases {
-                guard let coverage = try await store.sourceCoverage(for: source) else {
-                    lines.append("\(source.rawValue): never synced.")
-                    continue
-                }
-                lines.append("\(coverage.source.rawValue): \(coverage.status.rawValue), synced \(Self.timestamp(coverage.lastSuccessfulSync)).")
-            }
+            var lines = ["Assistant is running. Proactive reminders \(status.paused ? "paused" : "enabled")."]
             if let inbox {
                 let work = await inbox.counts()
-                lines.append("Assistant replies: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.")
+                lines.append("Replies: \(work.queued) waiting, \(work.uncertain) awaiting local confirmation, \(work.failed) failed.")
+            }
+            for source in [ObservationSource.messages, .calendar, .contacts] {
+                if let coverage = try await store.sourceCoverage(for: source) {
+                    let scope = source == .messages ? "direct text only" : source == .calendar ? "indexed window" : "synced contacts"
+                    lines.append("\(source.rawValue.capitalized): \(age(coverage.lastSuccessfulSync)), \(scope)\(coverage.status == .unavailable ? "; unavailable" : "").")
+                } else { lines.append("\(source.rawValue.capitalized): not synced yet.") }
             }
             if let access {
-                lines.append("Local app access (last checked):")
                 let entries = await access.snapshot()
-                for tool in [ContextTool.mailInbox, .notes, .reminders] {
+                for tool in [ContextTool.mailInbox, .notes, .reminders, .photos] {
                     if let entry = entries.first(where: { $0.tool == tool }) {
-                        lines.append("\(SourceAccessRegistry.name(tool)): \(entry.ready ? "readable" : "unavailable") at \(Self.timestamp(entry.checkedAt)).")
+                        lines.append("\(SourceAccessRegistry.name(tool)): \(entry.ready ? "connected" : "unavailable"), checked \(age(entry.checkedAt)).")
                         if !entry.ready { lines.append(entry.detail) }
-                    } else {
-                        lines.append("\(SourceAccessRegistry.name(tool)): not checked.")
-                    }
+                    } else { lines.append("\(SourceAccessRegistry.name(tool)): not connected yet.") }
                 }
-                lines.append("Documents: permitted folders only. Phone health requires the paired phone app. App access does not mean complete coverage.")
+                lines.append("Mail, Notes, Reminders and Photos are queried when you ask. Documents use permitted folders.")
+            }
+            if let health = try await store.sourceCoverage(for: .health) {
+                lines.append("Phone health: \(age(health.lastSuccessfulSync)).")
+            } else { lines.append("Phone health: no upload yet; connect the companion app to include it.") }
+            if let location = try await store.sourceCoverage(for: .location) {
+                lines.append("Phone location: \(age(location.lastSuccessfulSync)), coarse snapshot.")
             }
             return lines.joined(separator: "\n")
         case .meeting(let person):
@@ -162,6 +162,14 @@ public struct ControlCommandHandler: Sendable {
         ]
         lines.append(contentsOf: coverage.limitations.map { "Coverage limitation: \($0)" })
         return lines
+    }
+
+    private func age(_ date: Date) -> String {
+        let seconds = max(0, Int(clock().timeIntervalSince(date)))
+        if seconds < 60 { return "just now" }
+        if seconds < 3_600 { return "\(seconds / 60) min ago" }
+        if seconds < 86_400 { return "\(seconds / 3_600) hr ago" }
+        return "\(seconds / 86_400) days ago"
     }
 
     private static func timestamp(_ date: Date) -> String {

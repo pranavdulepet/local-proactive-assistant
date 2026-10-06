@@ -16,6 +16,11 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
     private let queue: PhoneUploadQueue?
     private var session: URLSession!
     private var startingUpload = false
+    private var pairingChanging = false
+    private var pairingGeneration: UInt64 = 0
+    private var pairingEpoch = ""
+    private var queueMutations = 0
+    private var queueDrainWaiters: [CheckedContinuation<Void, Never>] = []
 
     private override init() {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -23,6 +28,10 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
         queue = try? PhoneUploadQueue(directory: root)
         super.init()
         pairing = try? PairingKeychain.read(PhonePairing.self, account: "phone")
+        if pairing != nil {
+            pairingEpoch = UserDefaults.standard.string(forKey: "phone.uploadPairingEpoch") ?? UUID().uuidString
+            UserDefaults.standard.set(pairingEpoch, forKey: "phone.uploadPairingEpoch")
+        }
         lastSynced = UserDefaults.standard.object(forKey: "phone.lastSynced") as? Date
         let config = URLSessionConfiguration.background(withIdentifier: "org.localproactiveassistant.phone.upload")
         config.isDiscretionary = false
@@ -37,26 +46,54 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
 
     public func pair(_ value: PhonePairing) async throws {
         try value.validate()
+        guard !pairingChanging else { throw PhoneSyncFailure("A pairing change is already in progress.") }
+        pairingChanging = true
+        pairingGeneration &+= 1
+        pairing = nil
+        defer { pairingChanging = false }
         for task in await tasks() { task.cancel() }
+        await drainQueueMutations()
         try await queue?.reset()
         try PairingKeychain.write(value, account: "phone")
+        pairingEpoch = UUID().uuidString
+        UserDefaults.standard.set(pairingEpoch, forKey: "phone.uploadPairingEpoch")
         pairing = value; lastSynced = nil; pendingCount = 0
         UserDefaults.standard.removeObject(forKey: "phone.lastSynced")
         status = "Paired with \(value.name)."
     }
 
     public func disconnect() async throws {
+        guard !pairingChanging else { throw PhoneSyncFailure("A pairing change is already in progress.") }
+        pairingChanging = true
+        pairingGeneration &+= 1
+        pairing = nil
+        defer { pairingChanging = false }
         for task in await tasks() { task.cancel() }
+        await drainQueueMutations()
         try PairingKeychain.remove(account: "phone")
         try await queue?.reset()
+        pairingEpoch = ""
+        UserDefaults.standard.removeObject(forKey: "phone.uploadPairingEpoch")
         pairing = nil; lastSynced = nil; pendingCount = 0
         UserDefaults.standard.removeObject(forKey: "phone.lastSynced")
         status = "Phone disconnected."
     }
 
-    public func enqueue(sleepEnabled: Bool, sleep: [PhoneSleepDigest]) async throws {
-        guard let pairing, let queue else { throw PhoneSyncFailure("Pair with your Mac first.") }
-        _ = try await queue.enqueue(pairing: pairing, sleepEnabled: sleepEnabled, sleep: sleep)
+    public func enqueue(sleepEnabled: Bool, sleep: [PhoneSleepDigest],
+                        activityEnabled: Bool? = nil, activity: PhoneActivityDigest? = nil,
+                        locationEnabled: Bool? = nil, location: PhoneLocationDigest? = nil) async throws {
+        guard !pairingChanging, let pairing, let queue else { throw PhoneSyncFailure("Pair with your Mac first.") }
+        let generation = pairingGeneration
+        queueMutations += 1
+        do {
+            _ = try await queue.enqueue(pairing: pairing, sleepEnabled: sleepEnabled, sleep: sleep,
+                activityEnabled: activityEnabled, activity: activity, locationEnabled: locationEnabled, location: location)
+        } catch {
+            finishQueueMutation()
+            throw error
+        }
+        finishQueueMutation()
+        guard generation == pairingGeneration, self.pairing == pairing, !pairingChanging else { return }
         await uploadNext()
     }
 
@@ -69,14 +106,23 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
     }
 
     private func uploadNext() async {
-        guard let pairing, let queue, !startingUpload else { return }
+        guard !pairingChanging, let pairing, let queue, !startingUpload else { return }
+        let generation = pairingGeneration
         startingUpload = true
-        defer { startingUpload = false }
+        defer {
+            startingUpload = false
+            if generation != pairingGeneration, self.pairing != nil, !pairingChanging {
+                Task { [weak self] in await self?.uploadNext() }
+            }
+        }
         do {
             let files = try await queue.pending()
+            guard generation == pairingGeneration, self.pairing == pairing, !pairingChanging else { return }
             pendingCount = files.count
             guard !files.isEmpty else { return }
-            guard await tasks().isEmpty else { status = "Syncing phone context…"; return }
+            let existingTasks = await tasks()
+            guard generation == pairingGeneration, self.pairing == pairing, !pairingChanging else { return }
+            guard existingTasks.isEmpty else { status = "Syncing phone context…"; return }
             var request = URLRequest(url: pairing.server.appendingPathComponent("phone-context"))
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -84,10 +130,43 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
             let attributes = try FileManager.default.attributesOfItem(atPath: files[0].path)
             request.setValue(String((attributes[.size] as? NSNumber)?.intValue ?? 0), forHTTPHeaderField: "Content-Length")
             let task = session.uploadTask(with: request, fromFile: files[0])
-            task.taskDescription = files[0].lastPathComponent
+            let sequence = (files[0].lastPathComponent as NSString).deletingPathExtension
+            task.taskDescription = Self.identity(of: pairing, epoch: pairingEpoch) + ":" + sequence
             status = "Syncing phone context…"
             task.resume()
-        } catch { status = "Could not queue phone context. Open the companion again to retry." }
+        } catch {
+            if generation == pairingGeneration, self.pairing == pairing {
+                status = "Could not queue phone context. Open the companion again to retry."
+            }
+        }
+    }
+
+    nonisolated private static func identity(of pairing: PhonePairing, epoch: String) -> String {
+        let identity = [epoch, pairing.deviceID.uuidString, pairing.server.absoluteString,
+            pairing.certificateSHA256, pairing.token].joined(separator: "\n")
+        return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func drainQueueMutations() async {
+        guard queueMutations > 0 else { return }
+        await withCheckedContinuation { queueDrainWaiters.append($0) }
+    }
+
+    private func finishQueueMutation() {
+        queueMutations -= 1
+        guard queueMutations == 0 else { return }
+        let waiters = queueDrainWaiters
+        queueDrainWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func acknowledge(_ sequence: Int64, identity: String, generation: UInt64) async throws -> Bool {
+        guard !pairingChanging, generation == pairingGeneration,
+              let pairing, Self.identity(of: pairing, epoch: pairingEpoch) == identity, let queue else { return false }
+        queueMutations += 1
+        defer { finishQueueMutation() }
+        try await queue.acknowledge(sequence)
+        return !pairingChanging && generation == pairingGeneration
     }
 
     nonisolated public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
@@ -110,24 +189,41 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
 
     nonisolated public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let response = task.response as? HTTPURLResponse
-        let sequence = task.taskDescription.flatMap { Int64(($0 as NSString).deletingPathExtension) }
+        let description = task.taskDescription?.split(separator: ":", maxSplits: 1)
+        let identity = description?.count == 2 ? description.map { String($0[0]) } : nil
+        let sequence = description?.count == 2 ? description.flatMap { Int64($0[1]) } : nil
         let acknowledged = response?.value(forHTTPHeaderField: "X-Acknowledged-Sequence").flatMap(Int64.init)
         let success = error == nil && response?.statusCode == 200
         Task { @MainActor [self] in
-            guard pairing != nil, let queue else { return }
+            guard !pairingChanging, let pairing, let queue else { return }
+            let generation = pairingGeneration
+            guard let identity, identity == Self.identity(of: pairing, epoch: pairingEpoch) else {
+                // An old pairing or pre-upgrade task cannot acknowledge this
+                // queue. Preserve its files and retry against the current Mac.
+                await uploadNext()
+                return
+            }
             if success, let sequence, let acknowledged, acknowledged >= sequence {
                 do {
-                    try await queue.acknowledge(acknowledged)
+                    guard try await acknowledge(acknowledged, identity: identity, generation: generation) else { return }
+                    let count = try await queue.pending().count
+                    guard generation == pairingGeneration, self.pairing == pairing, !pairingChanging else { return }
                     lastSynced = Date()
                     UserDefaults.standard.set(lastSynced, forKey: "phone.lastSynced")
-                    pendingCount = try await queue.pending().count
+                    pendingCount = count
                     status = "Phone context received by your Mac. Ask about it in Messages."
                     await uploadNext()
-                } catch { status = "The Mac received context, but the local queue could not be updated." }
+                } catch {
+                    if generation == pairingGeneration, self.pairing == pairing {
+                        status = "The Mac received context, but the local queue could not be updated."
+                    }
+                }
             } else if response?.statusCode == 401 {
                 status = "Pairing was revoked. Pair with your Mac again."
             } else {
-                pendingCount = (try? await queue.pending().count) ?? pendingCount
+                let count = try? await queue.pending().count
+                guard generation == pairingGeneration, self.pairing == pairing, !pairingChanging else { return }
+                pendingCount = count ?? pendingCount
                 status = "Waiting for your Mac. Updates stay queued on this phone."
             }
         }
