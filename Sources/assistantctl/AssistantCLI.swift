@@ -263,8 +263,6 @@ struct AssistantCLI {
             }
 
         case "serve":
-            let lease = try HostLease(fileURL: stateURL("host.lock"))
-            defer { withExtendedLifetime(lease) {} }
             let model = takeOption("--model", from: &arguments)
             let localURL = takeOption("--model-url", from: &arguments)
             let localName = takeOption("--model-name", from: &arguments)
@@ -804,16 +802,3 @@ private final class HostStopSignals: @unchecked Sendable {
     deinit { for source in sources { source.cancel() } }
 }
 
-/// One Mac host owns the paired inbox across all local model profiles.
-private final class HostLease {
-    private let descriptor: Int32
-    init(fileURL: URL) throws {
-        descriptor = open(fileURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { throw CLIError("The host lock could not be opened.") }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            close(descriptor)
-            throw CLIError("Another assistant is already running. Stop the Terminal or Mac app host before starting this one.")
-        }
-    }
-    deinit { flock(descriptor, LOCK_UN); close(descriptor) }
-}
