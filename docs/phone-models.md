@@ -7,7 +7,7 @@ The Mac and phone selections are separate. Changing the phone model does not cha
 ## Choose an open model
 
 1. Build and install `Apps/AssistantPhone/AssistantPhone.xcodeproj` on your physical iPhone using Xcode. Set your signing team as described in the main README.
-2. Open Local Assistant and choose a **Phone model**.
+2. Open Local Assistant, tap **Phone conversation**, and choose a **Phone model**.
 3. Tap **Download model to this iPhone**. This explicitly downloads public weights/config/tokenizer files from Hugging Face. Your questions and phone context are not sent to a model service.
 4. Wait for the files to be saved, then use **Ask on this iPhone**. The first reply loads the model into memory; later replies reuse it while this conversation remains active.
 

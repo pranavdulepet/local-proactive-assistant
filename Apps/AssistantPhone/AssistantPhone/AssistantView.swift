@@ -7,7 +7,6 @@ struct AssistantView: View {
     @ObservedObject private var upload = PhoneUploadClient.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var importingModel = false
-    @State private var phoneConversationExpanded = false
 
     var body: some View {
         NavigationStack {
@@ -22,21 +21,17 @@ struct AssistantView: View {
                 macConnection
                 phoneSources
                 Section("Optional local chat") {
-                    DisclosureGroup("Phone conversation", isExpanded: $phoneConversationExpanded) {
+                    NavigationLink {
                         phoneConversation
-                    }.accessibilityIdentifier("phoneConversationDisclosure")
+                    } label: {
+                        Label("Phone conversation", systemImage: "bubble.left.and.bubble.right")
+                    }.accessibilityIdentifier("phoneConversationLink")
                 }
                 if !model.notice.isEmpty { Section { Text(model.notice).font(.subheadline) } }
             }
             .navigationTitle("Phone companion")
             .task { await model.activate(); await model.checkPhoneModel() }
             .onOpenURL { model.receivePairing($0) }
-            .fileImporter(isPresented: $importingModel, allowedContentTypes: [.folder]) { result in
-                switch result {
-                case .success(let url): Task { await model.importPhoneModel(url) }
-                case .failure(let error): model.notice = "Could not open model folder: \(error.localizedDescription)"
-                }
-            }
             .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.activate() } } }
             .alert("Pair with your Mac?", isPresented: Binding(get: { model.pendingPairing != nil }, set: { if !$0 { model.pendingPairing = nil } })) {
                 Button("Pair") {
@@ -47,6 +42,12 @@ struct AssistantView: View {
                 if let pending = model.pendingPairing {
                     Text("\(pending.name)\nVerify code \(pending.verificationCode) matches your Mac.")
                 }
+            }
+        }
+        .fileImporter(isPresented: $importingModel, allowedContentTypes: [.folder]) { result in
+            switch result {
+            case .success(let url): Task { await model.importPhoneModel(url) }
+            case .failure(let error): model.notice = "Could not open model folder: \(error.localizedDescription)"
             }
         }
     }
@@ -101,18 +102,56 @@ struct AssistantView: View {
     }
 
     private var phoneConversation: some View {
-        Group {
+        Form {
+            Section("Conversation") {
+                Picker("Phone model", selection: Binding(get: { model.phoneModelChoice }, set: { choice in
+                    Task { await model.selectPhoneModel(choice) }
+                })) {
+                    ForEach(PhoneModelChoice.allCases) { choice in Text(choice.title).tag(choice) }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("phoneModelPicker")
+                .accessibilityValue(model.phoneModelChoice.title)
+                .disabled(model.phoneBusy || model.phoneDownloading)
+                TextField("Message to phone model", text: Binding(get: { model.phoneQuestion }, set: { model.phoneQuestion = $0 }))
+                    .accessibilityIdentifier("phoneMessageField")
+                TextField("Exact contact name (optional)", text: Binding(get: { model.phoneContactName }, set: { model.phoneContactName = $0 }))
+                    .accessibilityIdentifier("phoneContactField")
+                Button("Ask on this iPhone") { Task { await model.askOnPhone() } }
+                    .accessibilityIdentifier("askPhoneButton")
+                    .disabled(model.phoneBusy || model.phoneDownloading || !model.phoneModelReady || model.phoneQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if model.phoneBusy { ProgressView("Preparing a local reply") }
+                if !model.phoneAnswer.isEmpty { Text(model.phoneAnswer).textSelection(.enabled) }
+            }
+            phoneModelStatus
+            Section("Conversation history") {
+                Button("New phone conversation") { Task { await model.newPhoneConversation() } }
+                    .disabled(model.phoneBusy || model.phoneDownloading)
+            }
+            Section("Local phone sources") {
+                Button("Allow phone Calendar") { Task { await model.enablePhoneCalendar() } }
+                Button("Allow phone Contacts") { Task { await model.enablePhoneContacts() } }
+                Text("Enabled Health and coarse-location summaries are also available here. iOS does not expose your Messages to this companion.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Model files") {
+                Button("Import my MLX model folder") { importingModel = true }
+                    .disabled(model.phoneBusy || model.phoneDownloading)
+                if model.phoneModelInstalled {
+                    Button("Remove selected model", role: .destructive) { Task { await model.removePhoneModel() } }
+                        .disabled(model.phoneBusy || model.phoneDownloading)
+                }
+            }
+            if !model.notice.isEmpty { Section { Text(model.notice).font(.subheadline) } }
+        }
+        .navigationTitle("Phone conversation")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var phoneModelStatus: some View {
+        Section("Model status") {
             Text("Chat inside this app with Apple Intelligence or a small open model. Messages replies still come from your running Mac.")
                 .font(.subheadline).foregroundStyle(.secondary)
-            Picker("Phone model", selection: Binding(get: { model.phoneModelChoice }, set: { choice in
-                Task { await model.selectPhoneModel(choice) }
-            })) {
-                ForEach(PhoneModelChoice.allCases) { choice in Text(choice.title).tag(choice) }
-            }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("phoneModelPicker")
-            .accessibilityValue(model.phoneModelChoice.title)
-            .disabled(model.phoneBusy || model.phoneDownloading)
             Text(model.phoneModelChoice.detail).font(.caption).foregroundStyle(.secondary)
             if !model.phoneModelDetail.isEmpty {
                 Text(model.phoneModelDetail).font(.caption).foregroundStyle(.secondary)
@@ -129,27 +168,6 @@ struct AssistantView: View {
             } else if model.phoneDownloading {
                 ProgressView("Saving phone model", value: model.phoneDownloadProgress)
                 Button("Cancel download") { model.cancelPhoneDownload() }
-            }
-            TextField("Message to phone model", text: Binding(get: { model.phoneQuestion }, set: { model.phoneQuestion = $0 }))
-                .accessibilityIdentifier("phoneMessageField")
-            TextField("Exact contact name (optional)", text: Binding(get: { model.phoneContactName }, set: { model.phoneContactName = $0 }))
-                .accessibilityIdentifier("phoneContactField")
-            Button("Ask on this iPhone") { Task { await model.askOnPhone() } }
-                .accessibilityIdentifier("askPhoneButton")
-                .disabled(model.phoneBusy || model.phoneDownloading || !model.phoneModelReady || model.phoneQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            if model.phoneBusy { ProgressView("Preparing a local reply") }
-            if !model.phoneAnswer.isEmpty { Text(model.phoneAnswer).textSelection(.enabled) }
-            Button("New phone conversation") { Task { await model.newPhoneConversation() } }
-                .disabled(model.phoneBusy || model.phoneDownloading)
-            Button("Allow phone Calendar") { Task { await model.enablePhoneCalendar() } }
-            Button("Allow phone Contacts") { Task { await model.enablePhoneContacts() } }
-            Text("Enabled Health and coarse-location summaries are also available here. iOS does not expose your Messages to this companion.")
-                .font(.caption).foregroundStyle(.secondary)
-            Button("Import my MLX model folder") { importingModel = true }
-                .disabled(model.phoneBusy || model.phoneDownloading)
-            if model.phoneModelInstalled {
-                Button("Remove selected model", role: .destructive) { Task { await model.removePhoneModel() } }
-                    .disabled(model.phoneBusy || model.phoneDownloading)
             }
         }
     }
