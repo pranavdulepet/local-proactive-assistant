@@ -198,8 +198,8 @@ public actor ModelConversationService {
             _ = try await store.record(Observation(
                 source: .messages, externalID: locator,
                 versionHash: digest.map { String(format: "%02x", $0) }.joined(),
-                sourceRevision: 1, observedAt: turn.createdAt, trust: .ownerAuthored,
-                text: "Owner message to assistant. Received by host \(ISO8601DateFormatter().string(from: turn.createdAt))\n\(message)",
+                sourceRevision: 1, observedAt: turn.acceptedAt, trust: .ownerAuthored,
+                text: "Owner message to assistant. Received by host \(ISO8601DateFormatter().string(from: turn.acceptedAt))\n\(message)",
                 locator: locator
             ))
         } catch { print("Conversation memory could not be saved locally.") }
