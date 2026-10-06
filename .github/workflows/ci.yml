@@ -47,16 +47,28 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build iPhone app for Simulator
         run: >-
-          xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
+          xcodebuild -quiet -project Apps/AssistantPhone/AssistantPhone.xcodeproj
           -scheme AssistantPhone -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
       - name: Build iPhone app for device
         run: >-
-          xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
+          xcodebuild -quiet -project Apps/AssistantPhone/AssistantPhone.xcodeproj
           -scheme AssistantPhone -destination 'generic/platform=iOS'
           -derivedDataPath DerivedDataDevice CODE_SIGNING_ALLOWED=NO build
       - name: Run phone companion smoke test
+        timeout-minutes: 12
         run: >-
-          xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
+          xcodebuild -quiet -project Apps/AssistantPhone/AssistantPhone.xcodeproj
           -scheme AssistantPhone -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest,arch=arm64'
-          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES test
+          -derivedDataPath DerivedData -resultBundlePath DerivedData/PhoneUITests.xcresult
+          -parallel-testing-enabled NO -test-timeouts-enabled YES
+          -default-test-execution-time-allowance 180 -maximum-test-execution-time-allowance 240
+          CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
+      - name: Save phone UI diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-ui-result
+          path: DerivedData/PhoneUITests.xcresult
+          if-no-files-found: warn
+          retention-days: 7
