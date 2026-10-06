@@ -157,9 +157,33 @@ private final class NativeHTTPFixture: @unchecked Sendable {
         }
         return body
     }
-    func consume(_ request: URLRequest) -> Response {
-        lock.withLock {
-            captured.append(request)
+    func consume(_ request: URLRequest) throws -> Response {
+        // Darwin URLSession may replace a Data body with an InputStream before
+        // handing the request to URLProtocol. Capture it while the stream is
+        // available, instead of trying to reread that stream after completion.
+        var snapshot = request
+        if snapshot.httpBody == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4_096)
+            let capacity = buffer.count
+            while true {
+                let count = stream.read(&buffer, maxLength: capacity)
+                guard count >= 0 else {
+                    throw stream.streamError ?? LocalModelFailure("Could not capture fixture request body stream")
+                }
+                if count == 0 { break }
+                guard data.count + count <= 1_048_576 else {
+                    throw LocalModelFailure("Fixture request body exceeds its capture limit")
+                }
+                data.append(contentsOf: buffer.prefix(count))
+            }
+            snapshot.httpBodyStream = nil
+            snapshot.httpBody = data
+        }
+        return lock.withLock {
+            captured.append(snapshot)
             return responses.isEmpty ? .json(["error": "Unexpected fixture request"], status: 500) : responses.removeFirst()
         }
     }
@@ -177,7 +201,12 @@ private final class NativeFixtureProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: LocalModelFailure("Fixture request was not registered"))
             return
         }
-        let result = fixture.consume(request)
+        let result: NativeHTTPFixture.Response
+        do { result = try fixture.consume(request) }
+        catch {
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: result.status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: result.data)

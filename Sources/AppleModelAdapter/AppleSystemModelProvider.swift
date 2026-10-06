@@ -186,6 +186,7 @@ private enum GeneratedContextTool {
     case calendar
     case contacts
     case photos
+    case phoneContext
     case searchIndex
     case mailInbox
     case searchFiles
@@ -200,6 +201,7 @@ private enum GeneratedContextTool {
         case .calendar: .calendar
         case .contacts: .contacts
         case .photos: .photos
+        case .phoneContext: .phoneContext
         case .searchIndex: .searchIndex
         case .mailInbox: .mailInbox
         case .searchFiles: .searchFiles
@@ -231,7 +233,7 @@ private enum GeneratedMessageDirection {
 private struct GeneratedContextCall {
     @Guide(description: "An available read tool relevant to the latest message.")
     var tool: GeneratedContextTool
-    @Guide(description: "Literal content keywords, not a full question. Photos accepts only photos, videos, screenshots or favorites, or nil for recent assets. Nil for readFile/deviceInfo or to retrieve messages without a topic; optional for inbox, notes and reminders.")
+    @Guide(description: "Literal content keywords, not a full question. Photos accepts photos/videos/screenshots/favorites or nil. phoneContext accepts sleep/activity/location/all or nil for latest shared snapshots. Nil for readFile/deviceInfo or unfiltered messages; optional for inbox, notes and reminders.")
     var query: String?
     @Guide(description: "A permitted absolute file path only for readFile; nil for all other tools.")
     var path: String?

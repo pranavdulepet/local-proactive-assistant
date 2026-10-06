@@ -54,92 +54,90 @@ struct HostPanel: View {
 
     var body: some View {
         ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Local Assistant").font(.headline)
-                    Text(host.phase.rawValue).foregroundStyle(host.phase == .running ? Color.green : Color.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Local Assistant").font(.headline)
+                        Text(host.phase.rawValue).foregroundStyle(host.phase == .running ? Color.green : Color.secondary)
+                    }
+                    Spacer()
+                    Button(host.canStart ? "Start" : "Stop") {
+                        if host.canStart { host.launch() } else { host.stop() }
+                    }
+                    .disabled(host.phase == .stopping)
                 }
-                Spacer()
-                Button(host.canStart ? "Start" : "Stop") {
-                    if host.canStart { host.launch() } else { host.stop() }
+                Text(host.modelLabel).font(.subheadline).textSelection(.enabled)
+                if !host.notice.isEmpty {
+                    Text(host.notice).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
-                .disabled(host.phase == .stopping)
-            }
-            Text(host.modelLabel).font(.subheadline).textSelection(.enabled)
-            if !host.notice.isEmpty {
-                Text(host.notice).font(.callout).fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
-            Divider()
-            HStack {
-                Text("Source access").font(.subheadline.weight(.semibold))
-                Spacer()
-                Button("Refresh") { host.refreshSources() }.disabled(host.checkingSources)
-                Button("Connect") { host.refreshSources(connect: true) }.disabled(host.checkingSources)
-            }
-            if host.checkingSources { Text("Checking source access…").foregroundStyle(.secondary) }
-            if host.sources.isEmpty {
-                Text("Access has not been checked from this host yet. Connect sources to review macOS permissions.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(host.sources) { source in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text(source.name)
-                            Spacer()
-                            Text(source.ready ? "Available when checked" : "Needs access")
-                                .foregroundStyle(source.ready ? Color.secondary : Color.orange)
+                Divider()
+                HStack {
+                    Text("Source access").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("Refresh") { host.refreshSources() }.disabled(host.checkingSources)
+                    Button("Connect") { host.refreshSources(connect: true) }.disabled(host.checkingSources)
+                }
+                if host.checkingSources { Text("Checking source access…").foregroundStyle(.secondary) }
+                if host.sources.isEmpty {
+                    Text("Connect sources to grant access and see their status.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(host.sources) { source in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(source.name)
+                                Spacer()
+                                Text(source.ready ? "Available" : "Needs access")
+                                    .foregroundStyle(source.ready ? Color.secondary : Color.orange)
+                            }
+                            Text(source.checkedAt, format: .dateTime.month().day().hour().minute())
+                                .foregroundStyle(.secondary)
+                            if !source.ready { Text(source.detail).textSelection(.enabled) }
                         }
-                        Text(source.checkedAt, format: .dateTime.month().day().hour().minute())
-                            .foregroundStyle(.secondary)
-                        if !source.ready { Text(source.detail).textSelection(.enabled) }
-                    }
-                    .font(.caption)
-                }
-            }
-            Text("These are past observations. This app may need its own macOS access grants.")
-                .font(.caption).foregroundStyle(.secondary)
-            DisclosureGroup("Indexed coverage", isExpanded: $showCoverage) {
-                Text(host.coverage).font(.caption).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            DisclosureGroup("Extra folders", isExpanded: $showFolders) {
-                Text("Stop the host to change additional permitted folders. Supported files are read only when relevant to a question.")
-                    .font(.caption).foregroundStyle(.secondary)
-                ForEach(host.readRoots, id: \.self) { path in
-                    HStack {
-                        Text(path).font(.caption).textSelection(.enabled)
-                        Spacer()
-                        Button("Remove") { host.removeReadFolder(path) }.disabled(host.isActive)
+                        .font(.caption)
                     }
                 }
-                Button("Add folder") { host.chooseReadFolder() }.disabled(host.isActive)
-            }
-            DisclosureGroup("Recent activity", isExpanded: $showActivity) {
-                ScrollView {
-                    Text(host.recentLines.isEmpty ? "No activity in this app session." : host.recentLines.joined(separator: "\n"))
-                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                DisclosureGroup("Indexed coverage", isExpanded: $showCoverage) {
+                    Text(host.coverage).font(.caption).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(height: 130)
-                Button("Open log folder") { host.openLogs() }
+                }
+                DisclosureGroup("Extra folders", isExpanded: $showFolders) {
+                    Text("Stop the host to change additional permitted folders. Supported files are read only when relevant to a question.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(host.readRoots, id: \.self) { path in
+                        HStack {
+                            Text(path).font(.caption).textSelection(.enabled)
+                            Spacer()
+                            Button("Remove") { host.removeReadFolder(path) }.disabled(host.isActive)
+                        }
+                    }
+                    Button("Add folder") { host.chooseReadFolder() }.disabled(host.isActive)
+                }
+                DisclosureGroup("Recent activity", isExpanded: $showActivity) {
+                    ScrollView {
+                        Text(host.recentLines.isEmpty ? "No activity in this app session." : host.recentLines.joined(separator: "\n"))
+                            .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(height: 130)
+                    Button("Open log folder") { host.openLogs() }
+                }
+                Divider()
+                Toggle("Start at login", isOn: Binding(get: { host.loginEnabled }, set: { host.setLoginEnabled($0) }))
+                Text(host.loginDetail).font(.caption).foregroundStyle(.secondary)
+                if host.loginDetail.contains("Approve") {
+                    Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
+                }
+                HStack {
+                    Button("Access settings") { host.openAccessSettings() }
+                    Button("Setup guide") { host.openSetupGuide() }
+                    Spacer()
+                    Button("Quit") { NSApplication.shared.terminate(nil) }
+                }
+                Text("This Mac must remain awake and online. Closing the lid can interrupt replies.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Divider()
-            Toggle("Start at login", isOn: Binding(get: { host.loginEnabled }, set: { host.setLoginEnabled($0) }))
-            Text(host.loginDetail).font(.caption).foregroundStyle(.secondary)
-            if host.loginDetail.contains("Approve") {
-                Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
-            }
-            HStack {
-                Button("Access settings") { host.openAccessSettings() }
-                Button("Setup guide") { host.openSetupGuide() }
-                Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-            }
-            Text("This Mac must remain awake and online. Closing the lid can interrupt replies.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(18)
+            .padding(18)
         }
         .frame(width: 440, height: 650)
         .onAppear { host.refreshSavedState(); host.refreshLoginStatus() }

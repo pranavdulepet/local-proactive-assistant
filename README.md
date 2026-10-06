@@ -74,7 +74,7 @@ A local submission record is separate from physical phone delivery.
 | Photos | Permitted asset metadata: dates, media type, dimensions, albums and coarse location |
 | Documents | Supported local formats in permitted folders, with native folder selection |
 | Mac information | Hardware and OS metadata |
-| iPhone companion | Opt-in phone context and local chat; see the phone setup documentation |
+| iPhone companion | Opt-in sleep/activity summaries and coarse location uploads; phone Calendar/Contacts in local phone chat |
 
 Read [source coverage and platform limits](docs/read-access.md). These connectors provide
 actual permitted reads; they do not imply unrestricted access to every app, account or file.

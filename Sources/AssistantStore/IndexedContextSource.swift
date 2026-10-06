@@ -37,7 +37,7 @@ public struct IndexedContextSource: ReadContextSource {
 
     private func read(_ call: ContextToolCall) async throws -> ContextToolResult {
         switch call.tool {
-        case .messages, .calendar, .contacts:
+        case .messages, .calendar, .contacts, .phoneContext:
             return try await EvidenceRetriever(store: store).read(call)
         case .searchIndex:
             guard let query = call.query, !query.isEmpty else {

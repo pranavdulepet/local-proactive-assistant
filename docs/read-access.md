@@ -8,7 +8,7 @@ Inbox read instead of certifying access from an account-metadata probe alone.
 | Source | Required access | Current scope | Gaps |
 | --- | --- | --- | --- |
 | Messages | Host Full Disk Access; Messages Automation for replies | Indexed direct text; full-name/handle resolution and direction/date/topic filters before paging | Groups, attachments, edits/deletions |
-| Calendar | Full Calendar access | Refreshed window:90 days back to365 days ahead; true interval-overlap queries, including overnight/all-day events | Deleted-event reconciliation; unsynced calendars |
+| Calendar | Full Calendar access | Refreshed window: 90 days back to 365 days ahead; true interval-overlap queries, including overnight/all-day events | Deleted-event reconciliation; unsynced calendars |
 | Contacts | Contacts access | Names, nicknames and exact phone/email identity joins | Limited grants; ambiguous names require clarification |
 | Mail | Mail Automation and locally synced accounts | Inbox or query-directed account/local folders, filtered metadata, selected bodies and pages | Attachments, missing bodies/folders, search time/size limits |
 | Notes | Notes Automation | Exposed title and plain-text body search | Locked notes, attachments and scripting limits |
@@ -17,11 +17,11 @@ Inbox read instead of certifying access from an account-metadata probe alone.
 | Documents | Permitted folders | Documents/Desktop/Downloads/local iCloud Drive plus selected folders; text, PDF text and supported office formats | Scanned PDF/OCR, cloud placeholders and unsupported formats |
 | Browser exports | User-selected export folder | Safari history/bookmark exports can be read as permitted documents | No live full-browser-history connector; no passwords/payment data |
 | Mac information | Fixed metadata calls | OS, hardware identifier, memory and CPU counts | Screen/audio capture, arbitrary app interiors and protected secrets |
-| iPhone | Signed companion and individual iOS grants | Selected phone sources, local inference and paired uploads described in phone setup | App-private storage, Messages database, arbitrary background collection |
+| iPhone | Signed companion and individual iOS grants | Sleep/activity/coarse location uploads; Calendar/Contacts in phone chat; Apple/MLX local inference | App-private storage, Messages database, arbitrary background collection |
 
 Mail is not an exhaustive Inbox scan. It identifies query matches before fetching selected
 bodies, orders by received date and exposes a next-page offset. Reads are bounded by time,
-256 mailboxes and5,000 matches. The model receives at most eight records per read and may
+256 mailboxes and 5,000 matches. The model receives at most eight records per read and may
 ask for another page or refine the query. Unknown dates and unreadable bodies are identified.
 Stage-specific Apple Events diagnostics distinguish actual permission denial from a scripting
 failure such as -2700. An empty or incomplete result does not establish that an email is absent.
@@ -62,5 +62,5 @@ A locally observed row confirms submission, not physical phone delivery.
 
 CI verifies source filtering, tool protocols, persistence, packaging and platform builds.
 Physical Phone/Mac source checks, real-model answers, remote-context delivery, lock/restart
-behavior and a24-hour run are still release acceptance work. Keep actual results separate
+behavior and a 24-hour run are still release acceptance work. Keep actual results separate
 from automated fixture coverage.

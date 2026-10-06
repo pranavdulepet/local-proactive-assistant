@@ -121,8 +121,18 @@ struct MailStoreSourceTests {
     @Test func realAppleEventDescriptorValuesDecodeDatesHeadersAndMissingValues() async throws {
         let suffix = #"""
         var scriptError = Ref();
-        var reply = $.NSAppleScript.alloc.initWithSource('return {119, "Maya", "Project review", current date, false, "Read the review before Friday", missing value}').executeAndReturnError(scriptError);
-        if (reply.numberOfItems !== 7) throw new Error('Descriptor fixture failed');
+        // Keep the script self-contained: current date is a Standard Additions command,
+        // not required to test Foundation's native Apple Event descriptors.
+        var reply = $.NSAppleScript.alloc.initWithSource('return {119, "Maya", "Project review", false, "Read the review before Friday", missing value}').executeAndReturnError(scriptError);
+        if (!reply || reply.isNil()) {
+            var info = scriptError[0];
+            var code = info ? Number(ObjC.unwrap(info.objectForKey('NSAppleScriptErrorNumber'))) : 'unknown';
+            throw new Error('Native descriptor fixture script failed: ' + code);
+        }
+        if (Number(reply.numberOfItems) !== 6) throw new Error('Native descriptor fixture expected six script values; received ' + Number(reply.numberOfItems));
+        var nativeDate = $.NSDate.dateWithTimeIntervalSince1970(1791140400);
+        reply.insertDescriptorAtIndex($.NSAppleEventDescriptor.alloc.initWithDate(nativeDate), 4);
+        if (Number(reply.numberOfItems) !== 7) throw new Error('Native descriptor fixture could not insert its date');
         var m = fixtureInbox[119];
         m.id = function() { return reply.descriptorAtIndex(1).int32Value; };
         m.sender = function() { return reply.descriptorAtIndex(2).stringValue; };
@@ -133,7 +143,7 @@ struct MailStoreSourceTests {
         """#
         let snapshot = try await runFixture(query: "unread emails", suffix: suffix)
         #expect(snapshot.messages.map(\.externalID) == ["119"])
-        #expect(snapshot.messages[0].receivedAt != nil)
+        #expect(snapshot.messages[0].receivedAt == Date(timeIntervalSince1970: 1_791_140_400))
         #expect(snapshot.messages[0].sender == "Maya")
         #expect(snapshot.messages[0].subject == "Project review")
         #expect(snapshot.messages[0].body == "Read the review before Friday")

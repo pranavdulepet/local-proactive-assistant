@@ -14,6 +14,7 @@ struct StructuredContextReader: Sendable {
         case .messages: return try await messages(call)
         case .calendar: return try await events(call)
         case .contacts: return try await contacts(call)
+        case .phoneContext: return try await phone(call)
         default: throw LocalModelFailure("This structured index reader does not provide that source.")
         }
     }
@@ -140,6 +141,38 @@ struct StructuredContextReader: Sendable {
         let selected = Array(filtered.dropFirst(offset).prefix(limit))
         let scope = "contacts: \(selected.count) matching indexed contact records, offset \(offset), limit \(limit). Search terms are literal, not FTS operators. Name identity candidates are bounded to 100 and may be incomplete for broad names. Multiple records may identify different people; resolve ambiguity before using a contact's handles.\(filtered.count > offset + limit ? " More matches are available at offset \(offset + limit)." : "")"
         return ContextToolResult(records: Self.records(selected), coverage: [scope, try await sourceCoverage(.contacts)])
+    }
+
+    private func phone(_ call: ContextToolCall) async throws -> ContextToolResult {
+        let selection = call.query?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "all"
+        guard ["all", "sleep", "activity", "location"].contains(selection) else {
+            throw LocalModelFailure("Phone context query must be sleep, activity, location or all; historical phone searches are not available.")
+        }
+        var rows: [Observation] = []
+        var coverage = ["Phone context retains latest shared snapshots only, not a historical phone index. Sleep covers the recorded rolling window, not a particular night. Activity covers its explicit start/end. Location is one captured coarse fix, not live tracking. Compare each record's original timestamp/window with the current question; Mac receipt time does not make an old measurement current."]
+        if selection != "location" {
+            let health = try await store.currentObservations(source: .health, trust: .structuredSource, limit: 32, newestFirst: true)
+            rows += health.filter { item in
+                let sleep = item.externalID.hasPrefix("phone-sleep:")
+                let activity = item.externalID.hasPrefix("phone-activity:")
+                return selection == "sleep" ? sleep : selection == "activity" ? activity : sleep || activity
+            }
+            coverage.append(try await sourceCoverage(.health))
+        }
+        if selection == "all" || selection == "location" {
+            rows += try await store.currentObservations(source: .location, trust: .structuredSource, limit: 8, newestFirst: true)
+                .filter { $0.externalID == "phone-location:coarse" }
+            coverage.append(try await sourceCoverage(.location))
+        }
+        rows.sort { ($0.sourceTimestamp ?? .distantPast) > ($1.sourceTimestamp ?? .distantPast) }
+        let formatter = ISO8601DateFormatter()
+        let records = rows.prefix(8).enumerated().map { index, item in
+            EvidenceRecord(id: "e\(index + 1)", source: item.source.rawValue, timestamp: item.sourceTimestamp,
+                text: EvidenceText.bounded("Original phone measurement/window end: \(item.sourceTimestamp.map(formatter.string(from:)) ?? "unavailable")\n" + item.text, bytes: 768),
+                locator: EvidenceText.bounded(item.locator, bytes: 256), trust: item.trust.rawValue)
+        }
+        coverage.append("phoneContext: \(records.count) current nondeleted \(selection) snapshot records supplied, at most eight. Missing or not-readable values do not mean zero activity/sleep or a denied permission. Sharing may be disabled, not paired, not synced, or have no readable samples; only reported source status establishes access.")
+        return ContextToolResult(records: records, coverage: coverage.map { EvidenceText.bounded($0, bytes: 512) })
     }
 
     private struct PersonResolution {

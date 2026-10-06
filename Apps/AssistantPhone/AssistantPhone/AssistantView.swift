@@ -1,10 +1,12 @@
 import PhoneSync
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AssistantView: View {
     @State private var model = AssistantViewModel.shared
     @ObservedObject private var upload = PhoneUploadClient.shared
     @Environment(\.scenePhase) private var scenePhase
+    @State private var importingModel = false
 
     var body: some View {
         NavigationStack {
@@ -17,8 +19,34 @@ struct AssistantView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Section("Optional: ask this iPhone locally") {
-                    Text("When this app is open, a supported iPhone can use Apple's on-device model with phone Calendar, Contacts, and sleep data you allow. It cannot read your Messages or answer in iMessage while the Mac is offline.")
+                    Text("Use Apple Intelligence or a small open model while this app is open. The phone can use Calendar, Contacts, Health summaries and coarse location you allow. iOS does not expose Messages to this app; iMessage answers still come from your running Mac.")
                         .font(.subheadline).foregroundStyle(.secondary)
+                    Picker("Phone model", selection: Binding(get: { model.phoneModelChoice }, set: { choice in
+                        Task { await model.selectPhoneModel(choice) }
+                    })) {
+                        ForEach(PhoneModelChoice.allCases) { choice in Text(choice.title).tag(choice) }
+                    }.accessibilityIdentifier("phoneModelPicker")
+                        .disabled(model.phoneBusy || model.phoneDownloading)
+                    Text(model.phoneModelChoice.detail).font(.caption).foregroundStyle(.secondary)
+                    if model.phoneModelChoice.repository != nil, !model.phoneModelInstalled {
+                        Text("Download public weights once from Hugging Face. Only model files are requested; your messages and source data stay here. After download, answering works offline.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Download model to this iPhone") { model.downloadPhoneModel() }
+                            .accessibilityIdentifier("downloadPhoneModel")
+                            .disabled(model.phoneDownloading || model.phoneBusy)
+                    }
+                    if model.phoneImporting {
+                        ProgressView("Copying model files")
+                    } else if model.phoneDownloading {
+                        ProgressView("Saving phone model", value: model.phoneDownloadProgress)
+                        Button("Cancel download") { model.cancelPhoneDownload() }
+                    }
+                    Button("Import my MLX model folder") { importingModel = true }
+                        .disabled(model.phoneBusy || model.phoneDownloading)
+                    if model.phoneModelInstalled {
+                        Button("Remove selected model", role: .destructive) { Task { await model.removePhoneModel() } }
+                            .disabled(model.phoneBusy || model.phoneDownloading)
+                    }
                     if !model.phoneModelDetail.isEmpty {
                         Text(model.phoneModelDetail).font(.caption).foregroundStyle(.secondary)
                     }
@@ -31,7 +59,9 @@ struct AssistantView: View {
                         set: { model.phoneContactName = $0 }
                     ))
                     Button("Ask on this iPhone") { Task { await model.askOnPhone() } }
-                        .disabled(model.phoneBusy || model.phoneQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(model.phoneBusy || model.phoneDownloading || !model.phoneModelReady || model.phoneQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if model.phoneBusy { ProgressView("Preparing a local reply") }
+                    Button("New phone conversation") { Task { await model.newPhoneConversation() } }.disabled(model.phoneBusy || model.phoneDownloading)
                     Button("Allow phone Calendar") { Task { await model.enablePhoneCalendar() } }
                     Button("Allow phone Contacts") { Task { await model.enablePhoneContacts() } }
                     if !model.phoneAnswer.isEmpty {
@@ -55,7 +85,6 @@ struct AssistantView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if upload.pairing != nil {
                     Section("Phone sources") {
                         if model.sleepEnabled {
                             Toggle("Share sleep summaries", isOn: Binding(get: { model.sleepEnabled }, set: { enabled in
@@ -64,15 +93,34 @@ struct AssistantView: View {
                         } else {
                             Button("Enable sleep sharing") { Task { await model.enableSleep() } }
                         }
-                        Text("Only recorded sleep totals for the last 24 hours and seven days leave this phone. Raw Health samples stay here. Calendar, Contacts and Messages already come from your Mac.")
+                        if model.activityEnabled {
+                            Toggle("Share activity summaries", isOn: Binding(get: { model.activityEnabled }, set: { enabled in
+                                if !enabled { Task { await model.disableActivity() } }
+                            }))
+                        } else {
+                            Button("Enable activity sharing") { Task { await model.enableActivity() } }
+                        }
+                        if model.locationEnabled {
+                            Toggle("Share coarse location", isOn: Binding(get: { model.locationEnabled }, set: { enabled in
+                                if !enabled { Task { await model.disableLocation() } }
+                            }))
+                        } else {
+                            Button("Enable coarse location sharing") { Task { await model.enableLocation() } }
+                        }
+                        Text("Enabled sources are available to the phone model. When paired, sleep totals, today's steps/energy/exercise and a recent location rounded to about 1 km can sync to your Mac. Raw Health samples stay on this phone. Location is collected while the app is open.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.disabled(model.busy)
-                }
                 if !model.notice.isEmpty { Section { Text(model.notice).font(.subheadline) } }
             }
             .navigationTitle("Phone companion")
             .task { await model.activate(); await model.checkPhoneModel() }
             .onOpenURL { model.receivePairing($0) }
+            .fileImporter(isPresented: $importingModel, allowedContentTypes: [.folder]) { result in
+                switch result {
+                case .success(let url): Task { await model.importPhoneModel(url) }
+                case .failure(let error): model.notice = "Could not open model folder: \(error.localizedDescription)"
+                }
+            }
             .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.activate() } } }
             .alert("Pair with your Mac?", isPresented: Binding(get: { model.pendingPairing != nil }, set: { if !$0 { model.pendingPairing = nil } })) {
                 Button("Pair") {

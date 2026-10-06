@@ -70,11 +70,13 @@ public struct CalendarIngestor: Sendable {
             advancing: .calendar,
             cursor: String(revision)
         )
+        let formatter = ISO8601DateFormatter()
         try await store.refreshCoverage(
             for: .calendar,
             status: .partial,
             limitations: [
                 "Coverage is limited to the requested refresh window.",
+                "Last refresh interval: [\(formatter.string(from: startDate)), \(formatter.string(from: endDate))). Older indexed events may remain outside this interval; an empty read outside it is not a checked-empty calendar.",
                 "Deleted events are not yet reconciled.",
             ],
             at: syncDate

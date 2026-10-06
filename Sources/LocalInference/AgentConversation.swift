@@ -123,6 +123,8 @@ public enum AgentToolCatalog {
 
     private static func description(for tool: ContextTool) -> String {
         switch tool.rawValue {
+        case "phoneContext":
+            "Read the paired iPhone's latest uploaded sleep/activity totals and coarse location. Optional query is sleep, activity, location or all. Results include original capture times and freshness; these are snapshots, not live tracking."
         case "photos":
             "Read permitted Photos metadata by creation date and media kind. Optional query is photos, videos, screenshots or favorites. Returns dates, dimensions and coarse location; does not inspect image contents or download cloud originals."
         case "messages":
@@ -172,9 +174,11 @@ public enum AgentToolCatalog {
             case "person": properties[name] = ["type": "string", "maxLength": 128]
             case "from", "to": properties[name] = ["type": "string", "maxLength": 40, "description": "ISO YYYY-MM-DD or ISO8601 date-time in the host timezone."]
             default:
-                properties[name] = tool == .photos && name == "query"
-                    ? ["type": "string", "enum": ["photos", "videos", "screenshots", "favorites"]]
-                    : ["type": "string", "maxLength": 256]
+                if tool == .photos && name == "query" {
+                    properties[name] = ["type": "string", "enum": ["photos", "videos", "screenshots", "favorites"]]
+                } else if tool == .phoneContext && name == "query" {
+                    properties[name] = ["type": "string", "enum": ["sleep", "activity", "location", "all"]]
+                } else { properties[name] = ["type": "string", "maxLength": 256] }
             }
         }
         let required: [String] = tool.rawValue == "calendar" ? ["from", "to"] : tool == .readFile ? ["path"]

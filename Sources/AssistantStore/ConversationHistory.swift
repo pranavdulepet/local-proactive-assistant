@@ -12,12 +12,14 @@ public actor ConversationHistory {
         let turns: [ChatTurn]
         let sourceIDs: [String]
         let exchanges: [Exchange]?
+        let nextEvidenceID: Int?
     }
 
     private let fileURL: URL?
     private var turns: [ChatTurn]
     private var sourceIDs: [String]
     private var exchanges: [Exchange] = []
+    private var nextEvidenceID = 1
 
     public init() {
         fileURL = nil
@@ -41,6 +43,8 @@ public actor ConversationHistory {
                 turns = snapshot.turns
                 sourceIDs = Array(snapshot.sourceIDs.suffix(4_096))
                 exchanges = snapshot.exchanges ?? []
+                nextEvidenceID = max(snapshot.nextEvidenceID ?? 1,
+                    (exchanges.flatMap(\.records).compactMap { Int($0.id.dropFirst()) }.max() ?? 0) + 1)
             }
         } else {
             turns = []
@@ -52,6 +56,7 @@ public actor ConversationHistory {
     public func recent() -> [ChatTurn] { turns }
     public func agentTranscript() -> [AgentMessage] { exchanges.flatMap(\.messages) }
     public func agentRecords() -> [EvidenceRecord] { exchanges.flatMap(\.records) }
+    public func nextRecordID() -> Int { nextEvidenceID }
 
     public func lastUserMessage() -> String? {
         turns.last(where: { $0.role == .user })?.text
@@ -63,6 +68,7 @@ public actor ConversationHistory {
         let previousTurns = turns
         let previousIDs = sourceIDs
         let previousExchanges = exchanges
+        let previousEvidenceID = nextEvidenceID
         turns.append(ChatTurn(role: .user, text: EvidenceText.bounded(user, bytes: 2_048)))
         turns.append(ChatTurn(role: .assistant, text: EvidenceText.bounded(assistant, bytes: 2_048)))
         turns = Array(turns.suffix(8))
@@ -94,6 +100,7 @@ public actor ConversationHistory {
             }
             exchanges.append(Exchange(messages: compact, records: retainedRecords))
         }
+        nextEvidenceID = max(nextEvidenceID, (records.compactMap { Int($0.id.dropFirst()) }.max() ?? 0) + 1)
         exchanges = Array(exchanges.suffix(2))
         while exchanges.count > 1 && (exchanges.flatMap(\.messages).count > 24
             || exchanges.flatMap(\.messages).reduce(0, { $0 + $1.content.utf8.count }) > 24_000) {
@@ -104,6 +111,7 @@ public actor ConversationHistory {
             turns = previousTurns
             sourceIDs = previousIDs
             exchanges = previousExchanges
+            nextEvidenceID = previousEvidenceID
             throw error
         }
     }
@@ -114,7 +122,7 @@ public actor ConversationHistory {
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        let snapshot = Snapshot(schemaVersion: 1, turns: turns, sourceIDs: sourceIDs, exchanges: exchanges)
+        let snapshot = Snapshot(schemaVersion: 1, turns: turns, sourceIDs: sourceIDs, exchanges: exchanges, nextEvidenceID: nextEvidenceID)
         try JSONEncoder().encode(snapshot).write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
@@ -123,13 +131,16 @@ public actor ConversationHistory {
         let previousTurns = turns
         let previousIDs = sourceIDs
         let previousExchanges = exchanges
+        let previousEvidenceID = nextEvidenceID
         turns = []
         exchanges = []
         sourceIDs = []
+        nextEvidenceID = 1
         do { try persist() } catch {
             turns = previousTurns
             sourceIDs = previousIDs
             exchanges = previousExchanges
+            nextEvidenceID = previousEvidenceID
             throw error
         }
     }

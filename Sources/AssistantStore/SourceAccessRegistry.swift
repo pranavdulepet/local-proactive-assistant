@@ -61,6 +61,7 @@ public actor SourceAccessRegistry {
         case .calendar: "Calendar"
         case .contacts: "Contacts"
         case .photos: "Photos"
+        case .phoneContext: "Shared phone context"
         case .deviceInfo: "Mac information"
         }
     }

@@ -152,7 +152,7 @@ verifies its code signature and Gatekeeper assessment before using its bundled C
 It does not execute Ollama's remote shell installer.
 
 Existing local runtimes must implement the local `/v1` chat and model-list protocol plus
-structured JSON responses for read planning. Use `http://127.0.0.1:<port>/v1` or
+native function tools for personal-source reads. Use `http://127.0.0.1:<port>/v1` or
 `http://[::1]:<port>/v1`. Remote hosts, credentials, redirects, query strings, and cloud model
 tags are rejected by the guided setup. A proxy on your Mac can still forward requests;
 use a runtime you control and configure it for offline inference.
@@ -197,7 +197,7 @@ That command probes read access without printing personal content. Grant Automat
 Mail and Notes, and the normal Reminders permission when requested. It writes no emails, notes, or
 reminders. The guided starter remembers successful preparation; a failed or skipped setup
 does not mark access complete. Upgrading from the earlier Reminders Automation integration
-prepares the new native Reminders permission once. `ASSISTANT_SKIP_ACCESS_SETUP=1 bash scripts/start.sh`
+rechecks real Mail reads and prepares native Photos/Reminders permissions once. `ASSISTANT_SKIP_ACCESS_SETUP=1 bash scripts/start.sh`
 skips this step for a run. `/status` reports source access and sync freshness.
 
 For phone-only data and on-device phone models, pair the optional iPhone companion described

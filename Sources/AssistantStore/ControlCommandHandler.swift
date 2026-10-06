@@ -84,6 +84,9 @@ public struct ControlCommandHandler: Sendable {
             if let health = try await store.sourceCoverage(for: .health) {
                 lines.append("Phone health: \(age(health.lastSuccessfulSync)).")
             } else { lines.append("Phone health: no upload yet; connect the companion app to include it.") }
+            if let location = try await store.sourceCoverage(for: .location) {
+                lines.append("Phone location: \(age(location.lastSuccessfulSync)), coarse snapshot.")
+            }
             return lines.joined(separator: "\n")
         case .meeting(let person):
             do {

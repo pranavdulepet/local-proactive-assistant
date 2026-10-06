@@ -2,7 +2,7 @@ import Foundation
 
 /// Read capabilities exposed by the host. There is no command, network, recipient or write tool.
 public enum ContextTool: String, Codable, CaseIterable, Hashable, Sendable {
-    case photos, messages, calendar, contacts, searchIndex, mailInbox, searchFiles, readFile, notes, reminders, deviceInfo
+    case phoneContext, photos, messages, calendar, contacts, searchIndex, mailInbox, searchFiles, readFile, notes, reminders, deviceInfo
 }
 
 public struct ContextToolCall: Codable, Equatable, Sendable {
@@ -49,6 +49,14 @@ public struct ContextToolCall: Codable, Equatable, Sendable {
             guard tool == .messages || tool == .calendar || tool == .photos else {
                 throw LocalModelFailure("This read does not accept a date interval.")
             }
+        }
+        if tool == .phoneContext, let query,
+           !["sleep", "activity", "location", "all"].contains(query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            throw LocalModelFailure("Phone context supports sleep, activity, location or all.")
+        }
+        if tool == .photos, let query,
+           !["photos", "videos", "screenshots", "favorites"].contains(query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            throw LocalModelFailure("Photos metadata supports photos, videos, screenshots or favorites.")
         }
         if tool == .calendar, from == nil || to == nil {
             throw LocalModelFailure("Calendar reads require explicit from and to dates.")

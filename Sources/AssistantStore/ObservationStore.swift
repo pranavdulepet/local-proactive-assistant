@@ -63,6 +63,10 @@ public actor ObservationStore {
         let cursorParts = try sourceCursor(for: .health)?.split(separator: ":") ?? []
         if cursorParts.count == 2, cursorParts[0] == envelope.deviceID.uuidString,
            let previous = Int64(cursorParts[1]), envelope.sequence <= previous { return previous }
+        let deviceChanged = cursorParts.count == 2 && cursorParts[0] != envelope.deviceID.uuidString
+        let activityEnabled = envelope.activityEnabled ?? (deviceChanged ? false : nil)
+        let locationEnabled = envelope.locationEnabled ?? (deviceChanged ? false : nil)
+        let previousHealthCoverage = try sourceCoverage(for: .health)
         try execute("BEGIN IMMEDIATE")
         do {
             let formatter = ISO8601DateFormatter()
@@ -75,16 +79,55 @@ public actor ObservationStore {
                 } else { text = "" }
                 let observation = Observation(source: .health, externalID: "phone-sleep:\(hours)",
                     versionHash: "\(envelope.deviceID):\(envelope.sequence):\(hours)", sourceRevision: (try current(source: .health, externalID: "phone-sleep:\(hours)"))?.sourceRevision.advanced(by: 1) ?? 1,
-                    sourceTimestamp: envelope.createdAt, trust: .structuredSource, text: text,
+                    sourceTimestamp: item?.end ?? envelope.createdAt, trust: .structuredSource, text: text,
                     locator: "phone-health:sleep-\(hours)h", tombstone: minutes == nil || !envelope.sleepEnabled)
+                _ = try recordInsideTransaction(observation)
+            }
+            if let enabled = activityEnabled {
+                let observation = Observation(source: .health, externalID: "phone-activity:today",
+                    versionHash: "\(envelope.deviceID):\(envelope.sequence):activity",
+                    sourceRevision: (try current(source: .health, externalID: "phone-activity:today"))?.sourceRevision.advanced(by: 1) ?? 1,
+                    sourceTimestamp: envelope.activity?.end ?? envelope.createdAt, trust: .structuredSource,
+                    text: enabled ? envelope.activity?.summary ?? "" : "",
+                    locator: "phone-health:activity-today", tombstone: !enabled || envelope.activity == nil)
                 _ = try recordInsideTransaction(observation)
             }
             try saveCursor("\(envelope.deviceID.uuidString):\(envelope.sequence)", for: .health)
             let detail = envelope.sleepEnabled
-                ? "Derived phone sleep summaries only; raw samples stay on the phone. No readable samples may mean missing data or denied read access; it does not mean zero sleep. Collected \(formatter.string(from: envelope.createdAt))."
-                : "Phone sleep sharing is disabled."
-            try refreshCoverage(for: .health, status: envelope.sleepEnabled ? .partial : .unavailable,
-                limitations: [detail], at: Date())
+                ? "Phone sleep: derived summaries only; raw samples stay on the phone. No readable samples may mean missing data or denied read access; it does not mean zero sleep. Collected \(formatter.string(from: envelope.sleep.map(\.end).max() ?? envelope.createdAt))."
+                : "Phone sleep: sharing is disabled."
+            var healthLimitations = [detail]
+            if let enabled = activityEnabled {
+                if enabled, let activity = envelope.activity {
+                    healthLimitations.append(activity.coverage + " Collected \(formatter.string(from: activity.end)).")
+                } else {
+                    healthLimitations.append(enabled ? "Phone activity: enabled, but unavailable for this read; no totals supplied. Collected \(formatter.string(from: envelope.createdAt))."
+                        : "Phone activity: sharing is disabled.")
+                }
+            } else {
+                healthLimitations += previousHealthCoverage?.limitations.filter { $0.hasPrefix("Phone activity:") } ?? []
+            }
+            let activityShared = activityEnabled ?? healthLimitations.contains { $0.hasPrefix("Phone activity:") && !$0.contains("sharing is disabled") }
+            try refreshCoverage(for: .health, status: envelope.sleepEnabled || activityShared ? .partial : .unavailable,
+                limitations: healthLimitations, at: envelope.createdAt)
+            if let enabled = locationEnabled {
+                let location = envelope.location
+                let observation = Observation(source: .location, externalID: "phone-location:coarse",
+                    versionHash: "\(envelope.deviceID):\(envelope.sequence):location",
+                    sourceRevision: (try current(source: .location, externalID: "phone-location:coarse"))?.sourceRevision.advanced(by: 1) ?? 1,
+                    sourceTimestamp: location?.capturedAt ?? envelope.createdAt, trust: .structuredSource,
+                    text: enabled ? location?.summary ?? "" : "", locator: "phone-location:coarse-snapshot",
+                    tombstone: !enabled || location == nil)
+                _ = try recordInsideTransaction(observation)
+                try saveCursor("\(envelope.deviceID.uuidString):\(envelope.sequence)", for: .location)
+                let detail: String
+                if enabled, let location {
+                    detail = "One coarse phone location snapshot captured \(formatter.string(from: location.capturedAt)); coordinates rounded to an approximately 1 km grid. Queued uploads retain their original capture time. No continuous tracking or street address."
+                } else { detail = enabled ? "Phone location is enabled, but a recent readable fix was unavailable. Open the foreground companion to collect one."
+                    : "Phone location sharing is disabled." }
+                try refreshCoverage(for: .location, status: enabled && location != nil ? .partial : .unavailable,
+                    limitations: [detail], at: location?.capturedAt ?? envelope.createdAt)
+            }
             try execute("COMMIT")
             return envelope.sequence
         } catch { try? execute("ROLLBACK"); throw error }

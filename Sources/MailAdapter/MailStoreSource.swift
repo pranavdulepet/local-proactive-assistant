@@ -205,18 +205,19 @@ public struct MailStoreSource: MailSource {
     function plainMailValue(value) {
         if (value === null || value === undefined || value instanceof Date) return value;
         if (typeof ObjC !== 'undefined') {
-            try { return ObjC.unwrap(value); } catch (_) {}
+            try {
+                if (value && value.isKindOfClass($.NSDate)) return value;
+            } catch (_) {}
+            try {
+                var unwrapped = ObjC.unwrap(value);
+                return unwrapped === undefined ? value : unwrapped;
+            } catch (_) {}
         }
         return value;
     }
     function mailDateMilliseconds(value) {
-        value = plainMailValue(value);
-        if (value instanceof Date) return isFinite(value.getTime()) ? value.getTime() : null;
-        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-            var parsed = Date.parse(value);
-            return isFinite(parsed) ? parsed : null;
-        }
-        // NSDate from the Objective-C bridge is not automatically a JavaScript Date.
+        // Normalize native NSDate before attempting generic bridge unwrapping.
+        // ObjC.unwrap is defined for primitive conversions, not every Foundation object.
         if (value && typeof ObjC !== 'undefined') {
             try {
                 if (value.isKindOfClass($.NSDate)) {
@@ -224,6 +225,12 @@ public struct MailStoreSource: MailSource {
                     return isFinite(seconds) && Math.abs(seconds * 1000) <= 8640000000000000 ? seconds * 1000 : null;
                 }
             } catch (_) {}
+        }
+        value = plainMailValue(value);
+        if (value instanceof Date) return isFinite(value.getTime()) ? value.getTime() : null;
+        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+            var parsed = Date.parse(value);
+            return isFinite(parsed) ? parsed : null;
         }
         return null;
     }

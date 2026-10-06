@@ -55,7 +55,7 @@ public struct MacContextSource: ReadContextSource {
                 result = try await photos.read(call)
             case .deviceInfo:
                 result = await deviceInfo()
-            case .searchIndex, .mailInbox, .messages, .calendar, .contacts:
+            case .searchIndex, .mailInbox, .messages, .calendar, .contacts, .phoneContext:
                 result = ContextToolResult(records: [], coverage: ["This local Mac reader does not provide \(call.tool.rawValue); the host's Messages/Calendar/Contacts index and Mail adapter provide those reads."])
             }
         } catch is CancellationError {

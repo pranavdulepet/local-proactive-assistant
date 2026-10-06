@@ -91,6 +91,7 @@ struct StructuredContextReaderTests {
             from: "2026-10-05T00:00:00Z", to: "2026-10-06T00:00:00Z"))
         #expect(Set(result.records.map(\.locator)) == ["calendar:overnight", "calendar:all-day"])
         #expect(result.coverage.contains { $0.contains("overlapping") })
+        #expect(result.records.allSatisfy { $0.text.hasPrefix("Start:") && $0.text.contains("End: 2026-10-") })
         try result.validate()
     }
 
@@ -127,6 +128,41 @@ struct StructuredContextReaderTests {
                      ContextToolCall(tool: .calendar, from: "2026-02-30", to: "2026-03-01")] {
             await #expect(throws: Error.self) { _ = try await reader.execute(call) }
         }
+    }
+
+    @Test func phoneSnapshotsAreSourceTypedAndKeepOriginalTimesInsteadOfReceiptTimes() async throws {
+        let store = try ObservationStore()
+        let captured = date("2026-10-02T08:00:00Z")
+        let received = date("2026-10-06T10:00:00Z")
+        for (id, text) in [("phone-sleep:24", "Recorded sleep over the last 24 hours: 7 hours."),
+                           ("phone-sleep:168", "Recorded sleep over the last 168 hours: 49 hours."),
+                           ("phone-activity:today", "Recorded phone activity, 2026-10-02T00:00:00Z through 2026-10-02T08:00:00Z: steps not readable.")] {
+            try await store.record(Observation(source: .health, externalID: id, versionHash: "v1", sourceRevision: 1,
+                observedAt: received, sourceTimestamp: captured, trust: .structuredSource,
+                text: text, locator: "phone-health:" + id))
+        }
+        try await store.record(Observation(source: .location, externalID: "phone-location:coarse", versionHash: "v1", sourceRevision: 1,
+            observedAt: received, sourceTimestamp: captured, trust: .structuredSource,
+            text: "Coarse phone location captured 2026-10-02T08:00:00Z: latitude 37.8, longitude -122.4; one snapshot, not live.",
+            locator: "phone-location:coarse"))
+        try await store.record(Observation(source: .health, externalID: "unrelated-health", versionHash: "v1", sourceRevision: 1,
+            observedAt: received, sourceTimestamp: received, trust: .structuredSource,
+            text: "Unrelated health data.", locator: "health:unrelated"))
+        let reader = IndexedContextSource(store: store)
+        let all = try await reader.execute(ContextToolCall(tool: .phoneContext))
+        #expect(all.records.count == 4)
+        #expect(all.records.allSatisfy { $0.timestamp == captured })
+        #expect(all.coverage.contains { $0.contains("Mac receipt time does not make an old measurement current") })
+        #expect(!all.records.contains { $0.text.contains("Unrelated health") })
+        let sleep = try await reader.execute(ContextToolCall(tool: .phoneContext, query: "sleep"))
+        #expect(sleep.records.count == 2)
+        let activity = try await reader.execute(ContextToolCall(tool: .phoneContext, query: "activity"))
+        #expect(activity.records.count == 1)
+        #expect(activity.records[0].text.contains("steps not readable"))
+        let location = try await reader.execute(ContextToolCall(tool: .phoneContext, query: "location"))
+        #expect(location.records.map(\.source) == ["location"])
+        #expect(location.records[0].timestamp != received)
+        try all.validate()
     }
 
     @Test func legacyCalendarEndMetadataRetainsIntervalAcrossReopen() async throws {

@@ -46,10 +46,10 @@ public struct PersonalContextAgent: Sendable {
     }
 
     public func reply(message: String, history: [ChatTurn],
-                      agentHistory: [AgentMessage] = [], previousRecords: [EvidenceRecord] = []) async throws -> PersonalContextAnswer {
+                      agentHistory: [AgentMessage] = [], previousRecords: [EvidenceRecord] = [], nextRecordID: Int = 1) async throws -> PersonalContextAnswer {
         do {
             return try await nativeReply(message: message, history: history,
-                agentHistory: agentHistory, previousRecords: previousRecords)
+                agentHistory: agentHistory, previousRecords: previousRecords, nextRecordID: nextRecordID)
         } catch is AgentToolsUnavailable {
             return try await plannedReply(message: message, history: history)
         } catch is ChatReplyFailure {
@@ -178,7 +178,7 @@ public struct PersonalContextAgent: Sendable {
 
     /// Native model protocols retain actual assistant calls and tool results across steps.
     private func nativeReply(message: String, history: [ChatTurn], agentHistory: [AgentMessage],
-                             previousRecords: [EvidenceRecord]) async throws -> PersonalContextAnswer {
+                             previousRecords: [EvidenceRecord], nextRecordID: Int) async throws -> PersonalContextAnswer {
         let now = ISO8601DateFormatter().string(from: clock())
         let instructions = """
         You are the owner's personal assistant on their Mac, chatting through Messages.
@@ -208,7 +208,7 @@ public struct PersonalContextAgent: Sendable {
         let exchangeStart = messages.count
         messages.append(AgentMessage(role: .user, content: message))
         var records = previousRecords
-        var nextID = (records.compactMap { Int($0.id.dropFirst()) }.max() ?? 0) + 1
+        var nextID = max(nextRecordID, (records.compactMap { Int($0.id.dropFirst()) }.max() ?? 0) + 1)
         var trace: [PersonalContextTrace] = []
         var executed = Set<ContextToolCall>()
         var blocked = Set<ContextTool>()

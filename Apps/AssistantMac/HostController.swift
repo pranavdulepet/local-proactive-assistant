@@ -185,7 +185,7 @@ final class HostController: ObservableObject {
                 phase = .running
                 readyAt = Date()
                 refreshSavedState()
-                notice = "Text your paired self-chat from your phone. Keep this Mac online; closing the lid can stop replies."
+                notice = "Text your paired Messages self-chat from your phone."
             }
             if !line.isEmpty { append(line) }
         }

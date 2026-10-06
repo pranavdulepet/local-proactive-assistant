@@ -18,7 +18,7 @@
     <string>Read your reminders to answer personal questions locally. The assistant does not modify reminders.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Read your local Mail, Notes and Reminders for personal questions, and send assistant replies to your verified Messages chat.</string>
-<key>NSPhotoLibraryUsageDescription</key>
-<string>Read photo dates, media type and coarse locations for your local assistant when you allow access.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Read photo dates, media type and coarse locations for your local assistant when you allow access.</string>
 </dict>
 </plist>

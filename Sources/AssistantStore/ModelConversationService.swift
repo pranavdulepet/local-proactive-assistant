@@ -137,38 +137,42 @@ public actor ModelConversationService {
                         "Each read reports coverage and access errors. Available tools describe host capabilities, not proof of complete access. These reads cannot send or modify source data."
                     ]
                 ).reply(message: message, history: await history.recent(),
-                    agentHistory: await history.agentTranscript(), previousRecords: await history.agentRecords())
+                    agentHistory: await history.agentTranscript(), previousRecords: await history.agentRecords(),
+                    nextRecordID: await history.nextRecordID())
                 for entry in answer.trace where verbose {
                     print("local context \(entry.stage) \(entry.tool?.rawValue ?? "model"): \(entry.elapsedMilliseconds)ms; \(entry.outcome)")
                 }
                 reply = answer.reply.text
                 agentMessages = answer.messages
                 agentRecords = answer.records
+            } else if let agenda = try await CalendarAgendaService(store: store).response(to: message) {
+                // The legacy provider has no native tool transcript; keep its exact agenda shortcut.
+                reply = agenda
             } else {
-            if needsMail, let mail {
-                do { try await MailIngestor(source: mail, store: store).run() }
-                catch {
-                    try await store.markSourceUnavailable(.mail)
-                    throw error
+                if needsMail, let mail {
+                    do { try await MailIngestor(source: mail, store: store).run() }
+                    catch {
+                        try await store.markSourceUnavailable(.mail)
+                        throw error
+                    }
                 }
-            }
-            let request: EvidenceRequest
-            if let query {
-                request = try await EvidenceRetriever(store: store).request(question: query)
-            } else {
-                request = EvidenceRequest(question: message, records: [], coverage: [])
-            }
-            let retrievedAt = Date()
-            if verbose { print("local retrieval: \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records") }
-            let chat = ChatRequest(
-                message: message, history: await history.recent(),
-                records: request.records,
-                coverage: ["Host read capabilities: indexed Messages, Calendar, Contacts, \(mail == nil ? "no live Mail adapter" : "Apple Mail Inbox on email requests"), and paired phone sleep summaries. Coverage below describes this turn's available evidence; capability does not imply full access."] + request.coverage
-            )
-            try chat.validate()
-            reply = try await provider.chat(chat).text
-            try Task.checkCancellation()
-            if verbose { print("local model: \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms") }
+                let request: EvidenceRequest
+                if let query {
+                    request = try await EvidenceRetriever(store: store).request(question: query)
+                } else {
+                    request = EvidenceRequest(question: message, records: [], coverage: [])
+                }
+                let retrievedAt = Date()
+                if verbose { print("local retrieval: \(Int(retrievedAt.timeIntervalSince(started) * 1_000))ms; \(request.records.count) records") }
+                let chat = ChatRequest(
+                    message: message, history: await history.recent(),
+                    records: request.records,
+                    coverage: ["Host read capabilities: indexed Messages, Calendar, Contacts, \(mail == nil ? "no live Mail adapter" : "Apple Mail Inbox on email requests"), and paired phone sleep summaries. Coverage below describes this turn's available evidence; capability does not imply full access."] + request.coverage
+                )
+                try chat.validate()
+                reply = try await provider.chat(chat).text
+                try Task.checkCancellation()
+                if verbose { print("local model: \(Int(Date().timeIntervalSince(retrievedAt) * 1_000))ms") }
             }
         } catch is CancellationError {
             await progress.stop()

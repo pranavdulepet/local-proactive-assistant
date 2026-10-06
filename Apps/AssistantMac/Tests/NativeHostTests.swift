@@ -98,7 +98,10 @@ struct NativeHostTests {
     @MainActor private static func testStopCancelsStartupCheck(_ root: URL) async throws {
         let (host, pidFile) = try fixture(root, name: "startup", behavior: "blocked-check")
         host.launch()
-        try await waitUntil("Startup check did not start.") { FileManager.default.fileExists(atPath: pidFile.path) }
+        try await waitUntil("Startup check did not start.") {
+            guard let value = try? String(contentsOf: pidFile, encoding: .utf8) else { return false }
+            return Int32(value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        }
         let pid = try Int32(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
         host.stop()
         try await waitUntil("Startup cancellation did not finish.") { host.phase == .stopped }
