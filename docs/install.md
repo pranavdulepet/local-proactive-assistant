@@ -82,6 +82,7 @@ Ollama and its downloaded weights remain installed separately on your Mac.
 Click the speech-bubble icon in the menu bar to:
 
 - Start or stop the host, and see its observed readiness and selected model.
+- Pair the iPhone companion from **Stop → Pair iPhone**, scan and verify the QR, then **Start**.
 - Review source access with timestamps, refresh indexed coverage, and connect sources.
 - Add additional permitted file folders while the host is stopped.
 - View recent activity and open private log files.
@@ -100,8 +101,9 @@ terminate the processes the app owns, including its separate local Ollama server
 leave other Ollama instances alone. Stop a Terminal host before launching this app.
 
 This is a source-built, ad-hoc signed app. It is not a Developer ID signed, notarized
-download. The first model choice, model download, and phone pairing still use the guided
-starter; the native app currently reuses that completed setup. Updates can require renewed
+download. The first model choice, model download, and Messages self-chat pairing still use
+the guided starter; the native app reuses that setup. The separate iPhone companion can be
+paired directly from the installed app without the repository or Terminal. Updates can require renewed
 macOS access grants. To update, quit the app, pull the repository changes, and run the same
 installer. A failed signed package replacement restores the previous app and model worker.
 

@@ -29,6 +29,9 @@ elif name == "xcrun":
         binary.chmod(0o755)
 elif name == "codesign":
     if (root / "signature-failure").exists(): sys.exit(1)
+    if "--force" in args and Path(args[-1]).name == "imsg" and not Path(args[-1]).stat().st_mode & 0o200:
+        print("Permission denied signing read-only helper", file=sys.stderr)
+        sys.exit(1)
 elif name == "mv":
     source, target = map(Path, args)
     if (root / "app-replacement-failure").exists() and source.name == target.name == "LocalAssistant.app":
@@ -59,7 +62,7 @@ class MacAppInstallerTests(unittest.TestCase):
             (self.bin / name).write_text(STUB)
             (self.bin / name).chmod(0o755)
         (self.bin / "imsg").write_text("#!/bin/bash\nexit 0\n")
-        (self.bin / "imsg").chmod(0o755)
+        (self.bin / "imsg").chmod(0o555)
         build = self.root / "build"
         build.mkdir()
         for filename in ("assistantctl", "assistant-model-worker"):
@@ -97,6 +100,8 @@ class MacAppInstallerTests(unittest.TestCase):
         runtime = self.app / "Contents/Resources/Runtime"
         self.assertTrue((runtime / "bin/assistantctl").is_file())
         self.assertTrue((runtime / "bin/imsg").is_file())
+        self.assertEqual((self.bin / "imsg").stat().st_mode & 0o777, 0o555)
+        self.assertEqual((runtime / "bin/imsg").stat().st_mode & 0o777, 0o755)
         self.assertEqual((runtime / "bin/fixture.bundle/data.txt").read_text(), "runtime resource")
         self.assertEqual((self.worker / "previous.txt").read_text(), "old worker")
         self.assertFalse(any(call[0] == "open" for call in self.calls()))

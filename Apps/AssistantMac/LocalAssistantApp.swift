@@ -61,10 +61,10 @@ struct HostPanel: View {
                         Text(host.phase.rawValue).foregroundStyle(host.phase == .running ? Color.green : Color.secondary)
                     }
                     Spacer()
-                    Button(host.canStart ? "Start" : "Stop") {
-                        if host.canStart { host.launch() } else { host.stop() }
+                    Button(host.isActive ? "Stop" : "Start") {
+                        if host.isActive { host.stop() } else { host.launch() }
                     }
-                    .disabled(host.phase == .stopping)
+                    .disabled(host.phase == .stopping || host.pairingPhone)
                 }
                 Text(host.modelLabel).font(.subheadline).textSelection(.enabled)
                 if !host.notice.isEmpty {
@@ -73,10 +73,23 @@ struct HostPanel: View {
                 }
                 Divider()
                 HStack {
+                    Text("iPhone context").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button(host.pairingPhone ? "Pairing…" : "Pair iPhone") { host.pairPhone() }
+                        .disabled(!host.canPairPhone)
+                    if host.pairingPhone { Button("Cancel") { host.stop() } }
+                }
+                if !host.phonePairingResult.isEmpty {
+                    Text(host.phonePairingResult).font(.caption).textSelection(.enabled)
+                }
+                Text("Stop the host before pairing the iPhone companion. Scan and verify on the same local network, then Start to sync phone context.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                HStack {
                     Text("Source access").font(.subheadline.weight(.semibold))
                     Spacer()
-                    Button("Refresh") { host.refreshSources() }.disabled(host.checkingSources)
-                    Button("Connect") { host.refreshSources(connect: true) }.disabled(host.checkingSources)
+                    Button("Refresh") { host.refreshSources() }.disabled(host.checkingSources || host.pairingPhone)
+                    Button("Connect") { host.refreshSources(connect: true) }.disabled(host.checkingSources || host.pairingPhone)
                 }
                 if host.checkingSources { Text("Checking source access…").foregroundStyle(.secondary) }
                 if host.sources.isEmpty {
@@ -156,7 +169,7 @@ enum PayloadCheck {
                 throw HostFailure("Missing executable payload: \(relative)")
             }
         }
-        for key in ["NSAppleEventsUsageDescription", "NSContactsUsageDescription", "NSCalendarsFullAccessUsageDescription", "NSRemindersFullAccessUsageDescription", "NSPhotoLibraryUsageDescription"] {
+        for key in ["NSAppleEventsUsageDescription", "NSContactsUsageDescription", "NSCalendarsFullAccessUsageDescription", "NSRemindersFullAccessUsageDescription", "NSPhotoLibraryUsageDescription", "NSLocalNetworkUsageDescription"] {
             guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String, !value.isEmpty else {
                 throw HostFailure("Missing access description: \(key)")
             }

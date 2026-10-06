@@ -50,7 +50,9 @@ Send `/status` from your phone to the paired self-chat, then try:
 - “Find my launch notes and compare them with tomorrow's meeting.”
 - “What unfinished reminders should I prioritize?”
 
-The agent keeps conversation and tool results together. It can resolve people, search exact
+The agent keeps conversation and tool results together. Older owner messages stay searchable
+in the local index after leaving recent history; generated replies are not indexed as facts.
+It can resolve people, search exact
 date intervals, read another source or page, and answer with source references. Short ordinary
 conversation can finish in one model response. Missing source access is reported. Replies use
 one verified route and the `Assistant:` label. Apple's shared-account self-chat controls bubble

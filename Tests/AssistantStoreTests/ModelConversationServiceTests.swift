@@ -74,24 +74,46 @@ struct ModelConversationServiceTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let historyURL = directory.appendingPathComponent("conversation.json")
         let history = try ConversationHistory(fileURL: historyURL)
+        let storeURL = directory.appendingPathComponent("observations.sqlite")
+        let store = try ObservationStore(fileURL: storeURL)
         let transport = AnswerTransport()
         let chat = TransportChatID(rawValue: 954)
+        let preference = "When planning travel, I prefer the train over flights."
         let service = ModelConversationService(
-            store: try ObservationStore(), provider: TestChatModel(),
+            store: store, provider: TestChatModel(),
             transport: transport, ledger: try OutboundLedger(),
             chatID: chat, history: history
         )
-        #expect(try await service.begin(question: "hello") == nil)
+        #expect(try await service.begin(question: preference, sourceID: "travel-preference") == nil)
         let sent = await transport.waitForSend()
         #expect(sent.1 == chat)
         #expect(sent.0.text == "Hello from the local model.")
         for _ in 0..<50 {
-            if await history.lastUserMessage() == "hello" { break }
+            if await history.lastUserMessage() == preference { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         let saved = try ConversationHistory(fileURL: historyURL)
-        #expect(await saved.lastUserMessage() == "hello")
+        #expect(await saved.lastUserMessage() == preference)
         #expect(await saved.recent().count == 2)
+        for index in 1...5 {
+            let question = "Explain local inference option \(index)."
+            _ = try await service.begin(question: question)
+            _ = await transport.waitForSend(count: index + 1)
+            for _ in 0..<50 {
+                if await history.lastUserMessage() == question { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        await service.cancel()
+        let reopenedHistory = try ConversationHistory(fileURL: historyURL)
+        #expect(await reopenedHistory.recent().allSatisfy { $0.text != preference })
+        let reopenedStore = try ObservationStore(fileURL: storeURL)
+        let recalled = try await reopenedStore.search("train", sources: [.messages])
+        #expect(recalled.count == 1)
+        #expect(recalled.first?.observation.text.contains(preference) == true)
+        #expect(recalled.first?.observation.trust == .ownerAuthored)
+        #expect(recalled.first?.observation.sourceTimestamp == nil)
+        #expect(try await reopenedStore.search("\"Hello from the local model\"", sources: [.messages]).isEmpty)
     }
 
     @Test func greetingsAndTranscriptQuestionsUseConversationWithoutIndexedMessages() async throws {

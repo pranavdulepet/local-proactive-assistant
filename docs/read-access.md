@@ -55,6 +55,11 @@ All replies use the verified route configured by the host, preferring the owner'
 number. A shared Apple Account does not guarantee gray bubbles. Progress feedback uses a
 native typing capability only when supported, otherwise one short text after a slow turn.
 
+The owner's messages to the assistant are saved in the local search index for later recall.
+Their timestamps identify when the host received them. Generated assistant replies stay in
+conversation history and are not indexed as source facts. This lets the model search older
+preferences without treating its own earlier answers as evidence.
+
 Timeouts are reconciled against actual outgoing rows and GUIDs across verified aliases.
 Ambiguous sends remain unresolved and are not retried. Old uncertain queue records created
 before outbound request-ID linking remain visible because they cannot be safely reconstructed.

@@ -18,6 +18,8 @@ final class HostController: ObservableObject {
     @Published private(set) var loginDetail = ""
     @Published private(set) var checkingSources = false
     @Published private(set) var readRoots: [String] = []
+    @Published private(set) var pairingPhone = false
+    @Published private(set) var phonePairingResult = ""
     let support: URL
     let payload: URL
     private var backend: Process?
@@ -29,6 +31,7 @@ final class HostController: ObservableObject {
     private var restart: Task<Void, Never>?
     private var readinessTimeout: Task<Void, Never>?
     private var sourceCheck: Task<Void, Never>?
+    private var phonePairing: Task<Void, Never>?
     private var stopping: Task<Void, Never>?
     private var generation = UUID()
     private var shouldRun = false
@@ -37,7 +40,8 @@ final class HostController: ObservableObject {
     private var log: FileHandle?
 
     var isActive: Bool { [.starting, .running, .stopping, .restarting].contains(phase) }
-    var canStart: Bool { !isActive }
+    var canStart: Bool { !isActive && !pairingPhone }
+    var canPairPhone: Bool { !isActive && !pairingPhone && !checkingSources }
     var hasSetup: Bool {
         FileManager.default.fileExists(atPath: support.appendingPathComponent("model-profile.txt").path)
             && FileManager.default.fileExists(atPath: support.appendingPathComponent("control-chat-id.txt").path)
@@ -54,6 +58,7 @@ final class HostController: ObservableObject {
     }
 
     func launch() {
+        guard canStart else { return }
         guard hasSetup else {
             notice = "Choose a model and pair your Messages self-chat with the guided starter first."
             phase = .attention
@@ -63,7 +68,7 @@ final class HostController: ObservableObject {
     }
 
     func start(resetBudget: Bool = true) {
-        guard !isActive else { return }
+        guard canStart else { return }
         if resetBudget { budget.reset() }
         generation = UUID()
         let token = generation
@@ -114,12 +119,14 @@ final class HostController: ObservableObject {
         restart?.cancel()
         readinessTimeout?.cancel()
         sourceCheck?.cancel()
+        phonePairing?.cancel()
         phase = .stopping
         stopping = Task { [weak self] in
             guard let self else { completion?(); return }
             defer { stopping = nil }
             await startup?.value
             await sourceCheck?.value
+            await phonePairing?.value
             await stopOwnedProcesses()
             guard generation == token else { completion?(); return }
             phase = .stopped
@@ -367,7 +374,7 @@ final class HostController: ObservableObject {
     }
 
     func refreshSources(connect: Bool = false) {
-        guard !checkingSources else { return }
+        guard !checkingSources, !pairingPhone else { return }
         checkingSources = true
         sourceCheck = Task { [weak self] in
             guard let self else { return }
@@ -380,6 +387,29 @@ final class HostController: ObservableObject {
                 let status = try await command(cli, ["source-status"], timeout: 10)
                 coverage = status.text.isEmpty ? "No indexed source status is available yet." : status.text
             } catch is CancellationError {
+            } catch { notice = String(describing: error) }
+        }
+    }
+
+    func pairPhone() {
+        guard canPairPhone else { return }
+        pairingPhone = true
+        phonePairingResult = ""
+        notice = "Preparing an iPhone pairing code…"
+        phonePairing = Task { [weak self] in
+            guard let self else { return }
+            defer { pairingPhone = false }
+            do {
+                let result = try await command(cli, ["pair-phone"], timeout: 60)
+                try Task.checkCancellation()
+                guard result.status == 0 else {
+                    throw HostFailure(result.text.isEmpty ? "iPhone pairing could not be prepared. Try Pair iPhone again." : result.text)
+                }
+                // This includes the private verification code. Show it here, never in activity logs.
+                phonePairingResult = String(result.text.prefix(4096))
+                notice = "Scan the QR code with your iPhone Camera, verify the code in Local Assistant, then Start this host to enable phone sync."
+            } catch is CancellationError {
+                phonePairingResult = ""
             } catch { notice = String(describing: error) }
         }
     }

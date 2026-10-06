@@ -68,14 +68,20 @@ Neither simulator CI nor a generic device build measures physical phone generati
 ## Pair phone context with the Mac
 
 Build and install `Apps/AssistantPhone/AssistantPhone.xcodeproj` using Xcode, your signing team
-and your physical iPhone. Stop the Mac host, then pair on the Mac:
+and your physical iPhone. On the Mac, open the **Local Assistant** menu, click **Stop** if the
+host is running, then **Pair iPhone**. Scan the displayed QR using the iPhone Camera, open it
+in Local Assistant, and verify the code shown on the Mac. Click **Start** on the Mac to enable
+the paired HTTPS listener. Start on the same local network. The installed Mac app handles this
+pairing without Terminal or the repository folder.
+Allow Local Network access for Local Assistant on both devices if macOS or iOS asks.
+
+If you use the Terminal host instead, stop it and run:
 
 ```bash
 .build/release/assistantctl pair-phone
 ```
 
-Scan the displayed QR using the iPhone Camera, open it in Local Assistant, and verify/confirm
-the Mac pairing in the app. Restart the Mac host to start its paired HTTPS listener. Start on the same local network. Enable each source separately:
+Scan and verify the QR on your iPhone, then restart the Terminal host. Enable each source separately:
 
 - Sleep: derived 24-hour and 7-day summaries.
 - Activity: today's readable steps, active energy and exercise totals.

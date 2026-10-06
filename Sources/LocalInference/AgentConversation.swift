@@ -146,7 +146,7 @@ public enum AgentToolCatalog {
         case "deviceInfo":
             "Read basic local Mac hardware and OS information. No arguments. This does not inspect arbitrary running applications or passwords."
         default:
-            "Search the bounded local index across connected sources using concise source/topic/date keywords. Prefer messages, calendar or contacts for specific source requests."
+            "Search the local index across connected sources and the owner's earlier messages to this assistant using concise topic keywords. Use this to recall older owner preferences or facts beyond recent conversation history. Prefer messages, calendar or contacts for specific source requests."
         }
     }
 

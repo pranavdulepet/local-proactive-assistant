@@ -11,6 +11,7 @@ struct NativeHostTests {
         try testRestartBudget()
         try await testRunningHostStopsItsProcess(root)
         try await testStopCancelsStartupCheck(root)
+        try await testPhonePairingBlocksStartAndCancelsItsProcess(root)
         try await testExitBeforeReadyIsNotRetried(root)
         print("Native host profile and process lifecycle tests passed.")
     }
@@ -65,6 +66,7 @@ struct NativeHostTests {
         case "$1" in
           doctor|model-status) \(behavior == "blocked-check" ? "echo $$ > '\(path)'; exec /bin/sleep 60" : "exit 0") ;;
           serve) echo $$ > '\(path)'; \(behavior == "exit-before-ready" ? "exit 7" : "echo 'Ready. Fixture host'; exec /bin/sleep 60") ;;
+          pair-phone) echo $$ > '\(path)'; exec /bin/sleep 60 ;;
           *) exit 0 ;;
         esac
         """
@@ -115,5 +117,22 @@ struct NativeHostTests {
         try require(host.notice.contains("7"), "Exit status was hidden.")
         try await Task.sleep(for: .milliseconds(2200))
         try require(host.phase == .attention, "Failed startup was automatically retried.")
+    }
+
+    @MainActor private static func testPhonePairingBlocksStartAndCancelsItsProcess(_ root: URL) async throws {
+        let (host, pidFile) = try fixture(root, name: "phone-pairing", behavior: "run")
+        host.pairPhone()
+        try await waitUntil("Phone pairing command did not start.") {
+            guard let value = try? String(contentsOf: pidFile, encoding: .utf8) else { return false }
+            return Int32(value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+        }
+        let pid = try Int32(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
+        try require(host.pairingPhone && !host.canStart, "Start was enabled during phone pairing.")
+        host.launch()
+        try require(host.phase == .stopped, "The host started while pairing was in progress.")
+        host.stop()
+        try await waitUntil("Phone pairing cancellation did not finish.") { host.phase == .stopped && !host.pairingPhone }
+        try require(Darwin.kill(pid, 0) != 0, "Phone pairing process survived Stop.")
+        try require(host.phonePairingResult.isEmpty, "Cancelled pairing displayed a verification result.")
     }
 }

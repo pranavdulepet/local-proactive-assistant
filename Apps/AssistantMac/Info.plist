@@ -18,4 +18,6 @@
     <key>NSDesktopFolderUsageDescription</key><string>Search and read supported files in your permitted Desktop folder.</string>
     <key>NSDownloadsFolderUsageDescription</key><string>Search and read supported files in your permitted Downloads folder.</string>
     <key>NSPhotoLibraryUsageDescription</key><string>Read permitted photo and video metadata to answer your questions locally.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Receive encrypted context uploads from your paired iPhone over your local network.</string>
+    <key>NSBonjourServices</key><array><string>_lpa-sync._tcp</string></array>
 </dict></plist>

@@ -1,4 +1,5 @@
 import AssistantCore
+import CryptoKit
 import Foundation
 import LocalInference
 
@@ -185,6 +186,23 @@ public actor ModelConversationService {
             if verbose { print("Local conversation failed: \(error)") }
             reply = "The local model couldn't finish this answer. Please try again; if it keeps happening, check the model in the Mac app."
         }
+        if Task.isCancelled {
+            await progress.stop()
+            return
+        }
+        // Self-chat routes are excluded from Messages ingestion so model replies
+        // cannot become source facts. Keep only the owner's raw text searchable.
+        do {
+            let digest = SHA256.hash(data: Data(message.utf8))
+            let locator = "owner-conversation:\(turn.id)"
+            _ = try await store.record(Observation(
+                source: .messages, externalID: locator,
+                versionHash: digest.map { String(format: "%02x", $0) }.joined(),
+                sourceRevision: 1, observedAt: turn.createdAt, trust: .ownerAuthored,
+                text: "Owner message to assistant. Received by host \(ISO8601DateFormatter().string(from: turn.createdAt))\n\(message)",
+                locator: locator
+            ))
+        } catch { print("Conversation memory could not be saved locally.") }
         await progress.stop()
         if Task.isCancelled { return }
         if verbose { print("local answer: \(Int(Date().timeIntervalSince(started) * 1_000))ms for chat \(chatID.rawValue)") }

@@ -95,6 +95,8 @@ run_logged xcrun swiftc -swift-version 6 -parse-as-library -O -sdk "$sdk" -targe
 cp Apps/AssistantMac/Info.plist "$app/Contents/Info.plist"
 cp "$binary_dir/assistantctl" "$runtime/bin/assistantctl"
 cp "$imsg_binary" "$runtime/bin/imsg"
+# Homebrew can make its installed helper read-only. Re-sign only this private copy.
+chmod u+w "$runtime/bin/imsg"
 for resources in "$binary_dir"/*.bundle "$(dirname "$imsg_binary")"/*.bundle; do
     if [[ -d "$resources" ]]; then cp -R "$resources" "$runtime/bin/"; fi
 done

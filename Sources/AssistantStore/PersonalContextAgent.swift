@@ -190,6 +190,8 @@ public struct PersonalContextAgent: Sendable {
         For what somebody said, resolve their full name using person and use inbound messages.
         Calls and results from earlier turns are retained so references such as the next day
         refer to the day actually looked up. Read again when the owner asks for current facts.
+        Older owner messages remain searchable with searchIndex when they leave recent history.
+        Search concise keywords when recalling a preference or fact the owner previously told you.
         If identity is ambiguous, ask one short question using the returned candidates.
         Personal claims should cite the supplied record ID as [e1], [e2], etc. Don't append
         a coverage essay: mention a specific gap only when it changes the answer.
