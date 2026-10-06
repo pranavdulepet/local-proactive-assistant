@@ -104,7 +104,7 @@ public struct MailStoreSource: MailSource {
         let detail: String
         switch code {
         case .permissionDenied:
-            detail = "Mail access was denied. Enable your terminal in System Settings > Privacy & Security > Automation > Mail, then retry."
+            detail = "Mail access was denied. Enable the running host (Local Assistant or Terminal) in System Settings > Privacy & Security > Automation > Mail, then retry."
         case .mailboxUnavailable:
             detail = "The requested Mail folder is not exposed under that name. Check its name in Mail, or search by sender, date, or topic instead."
         case .noAccounts:

@@ -5,6 +5,22 @@ import Testing
 @testable import AssistantStore
 
 struct SourceAccessRegistryTests {
+    @Test func nativeSetupAndRunningReaderPreserveEachOthersLatestObservations() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("access.json")
+        let runningReader = try SourceAccessRegistry(fileURL: file)
+        let nativeSetup = try SourceAccessRegistry(fileURL: file)
+        let now = Date()
+        try await runningReader.record(tool: .notes, ready: true, detail: "Queried Notes", at: now)
+        try await nativeSetup.record(tool: .mailInbox, ready: false, detail: "Mail script failure", at: now)
+        try await nativeSetup.record(tool: .notes, ready: false, detail: "Older check", at: now.addingTimeInterval(-60))
+        let status = await runningReader.snapshot()
+        #expect(status.count == 2)
+        #expect(status.first { $0.tool == .notes }?.ready == true)
+        #expect(status.first { $0.tool == .mailInbox }?.detail == "Mail script failure")
+    }
+
     @Test func failedFirstReadIsVisibleInStatusWithoutInventingPermissions() async throws {
         let registry = try SourceAccessRegistry()
         let store = try ObservationStore()

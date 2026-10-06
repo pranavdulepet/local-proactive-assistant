@@ -65,7 +65,12 @@ struct StructuredContextReader: Sendable {
         coverage.append("messages: \(observations.count) \(direction) messages returned newest first, offset \(offset), limit \(limit), \(range). Person, direction, topic and date filters ran before the limit. Empty results mean no matching indexed rows, not no messages on the devices.\(observations.count == limit ? " More matches may be available at offset \(offset + observations.count)." : "")")
         coverage.append(try await sourceCoverage(.messages))
         let records = observations.enumerated().map { index, item in
-            let direction = item.trust == .ownerAuthored ? "outbound (owner sent)" : "inbound (participant sent)"
+            let direction: String
+            switch item.trust {
+            case .ownerAuthored: direction = "outbound (owner sent)"
+            case .knownExternal, .unknownExternal: direction = "inbound (participant sent)"
+            case .structuredSource: direction = "unavailable"
+            }
             let participant = identity ?? item.handles.joined(separator: ", ")
             let metadata = "Direction: \(direction)\nParticipant: \(EvidenceText.bounded(participant, bytes: 160))\nSent: \(item.sourceTimestamp.map(formatter.string(from:)) ?? "unknown")\nMessage: "
             return EvidenceRecord(id: "e\(index + 1)", source: "messages", timestamp: item.sourceTimestamp,
@@ -101,7 +106,15 @@ struct StructuredContextReader: Sendable {
             matchingAnyHandle: handles, topicQuery: Self.checkedFTS(call.query), limit: limit, offset: offset)
         let formatter = ISO8601DateFormatter()
         let scope = "calendar: \(events.count) indexed events overlapping [\(formatter.string(from: start)), \(formatter.string(from: end))) in \(calendar.timeZone.identifier); offset \(offset), limit \(limit). Includes overnight/all-day overlaps with stored end dates; canceled events are excluded. Missing legacy end dates are treated as start-only events.\(events.count == limit ? " More matches may be available at offset \(offset + events.count)." : "")"
-        return ContextToolResult(records: Self.records(events), coverage: [
+        let records = events.enumerated().map { index, item in
+            // Preserve interval facts even when a long external event title consumes
+            // most of the excerpt budget. Missing ends must remain explicitly unknown.
+            let interval = "Start: \(item.sourceTimestamp.map(formatter.string(from:)) ?? "unknown")\nEnd: \(item.sourceEndTimestamp.map(formatter.string(from:)) ?? "unknown")\nEvent: "
+            return EvidenceRecord(id: "e\(index + 1)", source: "calendar", timestamp: item.sourceTimestamp,
+                text: EvidenceText.bounded(interval + item.text, bytes: 768),
+                locator: EvidenceText.bounded(item.locator, bytes: 256), trust: item.trust.rawValue)
+        }
+        return ContextToolResult(records: records, coverage: [
             EvidenceText.bounded(scope, bytes: 512), try await sourceCoverage(.calendar)
         ] + identityCoverage)
     }

@@ -58,7 +58,7 @@ struct NativeConversationTests {
         _ = try await inbox.claim()
         try await inbox.markSending("question-guid", requestID: requestID)
         let reopened = try ConversationInbox(fileURL: file)
-        let ledger = OutboundLedger()
+        let ledger = try OutboundLedger()
         try await ledger.begin(requestID: requestID, chatID: primary, text: "Assistant: Your review is next.")
         let service = ModelConversationService(store: try ObservationStore(),
             provider: NativeConversationFixture(steps: []), transport: ObservedSubmissionFixture(),

@@ -92,11 +92,11 @@ final class HostController: ObservableObject {
                 shouldRun = false
                 generation = UUID()
                 let failureToken = generation
+                append("Startup stopped: \(error)")
                 await stopOwnedProcesses()
                 guard generation == failureToken else { return }
                 phase = .attention
                 notice = String(describing: error)
-                append("Startup stopped: \(error)")
             }
         }
     }
@@ -143,12 +143,12 @@ final class HostController: ObservableObject {
         process.standardError = pipe
         process.terminationHandler = { [weak self] exited in
             let code = exited.terminationStatus
-            Task { @MainActor in await self?.backendExited(code: code, token: token) }
+            Task { @MainActor [weak self] in await self?.backendExited(code: code, token: token) }
         }
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-            Task { @MainActor in self?.consume(data, token: token) }
+            Task { @MainActor [weak self] in self?.consume(data, token: token) }
         }
         backend = process
         output = pipe
@@ -201,6 +201,7 @@ final class HostController: ObservableObject {
         if let readyAt, Date().timeIntervalSince(readyAt) >= 600 { budget.reset() }
         readyAt = nil
         if !pendingOutput.isEmpty { append(String(decoding: pendingOutput, as: UTF8.self)); pendingOutput.removeAll() }
+        append("Host exited with status \(code).")
         phase = .stopping
         await stopOwnedProcesses()
         guard generation == token else { return }
@@ -246,7 +247,7 @@ final class HostController: ObservableObject {
         process.standardError = log
         process.terminationHandler = { [weak self] exited in
             let code = exited.terminationStatus
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, generation == token, shouldRun, phase == .running else { return }
                 append("The owned Ollama server exited with status \(code).")
                 backend?.terminate()
