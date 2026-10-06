@@ -213,6 +213,7 @@ public struct PersonalContextAgent: Sendable {
         var executed = Set<ContextToolCall>()
         var blocked = Set<ContextTool>()
         var readCount = 0
+        var repairedProtocol = false
         var readStatuses: [ContextReadStatus] = []
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -221,9 +222,23 @@ public struct PersonalContextAgent: Sendable {
             let contextFull = messages.reduce(0, { $0 + $1.content.utf8.count }) >= 50_000
             let tools = pass == 4 || readCount >= 6 || contextFull ? [] : availableTools.filter { !blocked.contains($0) }
             let request = AgentRequest(messages: messages, availableTools: tools)
+            try request.validate()
             let started = clock()
-            let step = try await provider.agentStep(request)
-            try step.validate(for: request)
+            let step: AgentStep
+            do {
+                step = try await provider.agentStep(request)
+                try step.validate(for: request)
+            } catch let failure as AgentProtocolFailure {
+                guard !repairedProtocol, pass < 4 else { throw failure }
+                repairedProtocol = true
+                trace.append(PersonalContextTrace(stage: "model", tool: nil,
+                    elapsedMilliseconds: milliseconds(since: started), outcome: "correcting invalid read request"))
+                messages.append(AgentMessage(role: .system, content:
+                    "Host feedback: The last response was rejected before any source read. " +
+                    EvidenceText.bounded(failure.description, bytes: 384) +
+                    " Correct the function call using the supplied tool schema. Calendar needs explicit from/to dates; use literal person/query fields and numeric limits. Answer the owner's original message."))
+                continue
+            }
             trace.append(PersonalContextTrace(stage: "model", tool: nil,
                 elapsedMilliseconds: milliseconds(since: started), outcome: "step \(pass + 1); \(step.calls.count) reads"))
             messages.append(AgentMessage(role: .assistant, content: step.text, toolCalls: step.calls))

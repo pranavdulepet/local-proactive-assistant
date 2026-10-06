@@ -143,15 +143,50 @@ struct PhoneSyncTests {
             activityEnabled: true, activity: activity, locationEnabled: true, location: location)
         let restored = try PhoneUploadQueue(directory: directory)
         let pending = try await restored.pending()
-        #expect(pending == [first])
-        let saved = try PhoneSyncEnvelope.decode(Data(contentsOf: first))
+        #expect(pending.map(\.lastPathComponent) == [first.lastPathComponent])
+        let savedFile = try #require(pending.first)
+        let saved = try PhoneSyncEnvelope.decode(Data(contentsOf: savedFile))
         #expect(saved.activity == activity && saved.location == location)
         #expect(saved.activity?.steps == nil)
         let second = try await restored.enqueue(pairing: pairing, sleepEnabled: false, sleep: [],
             activityEnabled: false, locationEnabled: false)
         #expect(try PhoneSyncEnvelope.decode(Data(contentsOf: second)).sequence == 2)
         try await restored.acknowledge(saved.sequence)
-        #expect(try await restored.pending() == [second])
+        let remaining = try await restored.pending()
+        #expect(remaining.map(\.lastPathComponent) == [second.lastPathComponent])
+        let remainingFile = try #require(remaining.first)
+        #expect(try PhoneSyncEnvelope.decode(Data(contentsOf: remainingFile)).sequence == 2)
+    }
+
+    @Test
+    func repairingTheSameQRPreservesSequenceAndAppliesTheFirstRevocation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = try PhoneUploadQueue(directory: directory), store = try ObservationStore(), now = wholeSecondDate()
+        let pairing = PhonePairing(deviceID: UUID(), name: "Test Mac", server: URL(string: "https://localhost:8765")!,
+            certificateSHA256: String(repeating: "a", count: 64), token: String(repeating: "b", count: 64))
+        let activity = PhoneActivityDigest(start: now.addingTimeInterval(-3600), end: now,
+            steps: 2300, activeEnergyKilocalories: nil, exerciseMinutes: nil)
+        let first = try await queue.enqueue(pairing: pairing, sleepEnabled: false, sleep: [],
+            activityEnabled: true, activity: activity)
+        let original = try PhoneSyncEnvelope.decode(Data(contentsOf: first))
+        let acknowledged = try await store.acceptPhoneContext(original)
+        try await queue.acknowledge(acknowledged)
+
+        // Pairing the same QR clears queued payloads, while the Mac keeps its cursor.
+        try await queue.reset()
+        let restored = try PhoneUploadQueue(directory: directory)
+        let next = try await restored.enqueue(pairing: pairing, sleepEnabled: false, sleep: [], activityEnabled: false)
+        let revoked = try PhoneSyncEnvelope.decode(Data(contentsOf: next))
+        #expect(revoked.sequence == original.sequence + 1)
+        // An earlier acknowledgement must not remove this new revocation.
+        try await restored.acknowledge(acknowledged)
+        let pending = try await restored.pending()
+        #expect(pending.map(\.lastPathComponent) == [next.lastPathComponent])
+        let pendingFile = try #require(pending.first)
+        #expect(try PhoneSyncEnvelope.decode(Data(contentsOf: pendingFile)) == revoked)
+        #expect(try await store.acceptPhoneContext(revoked) == revoked.sequence)
+        #expect(try await store.current(source: .health, externalID: "phone-activity:today")?.tombstone == true)
     }
 
     @Test

@@ -49,7 +49,7 @@ jobs:
         run: >-
           xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
           -scheme AssistantPhone -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
       - name: Build iPhone app for device
         run: >-
           xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
@@ -59,4 +59,4 @@ jobs:
         run: >-
           xcodebuild -project Apps/AssistantPhone/AssistantPhone.xcodeproj
           -scheme AssistantPhone -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest,arch=arm64'
-          -derivedDataPath DerivedDataUITest CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES test
+          -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES test

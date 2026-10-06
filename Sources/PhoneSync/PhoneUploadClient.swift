@@ -18,6 +18,7 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
     private var startingUpload = false
     private var pairingChanging = false
     private var pairingGeneration: UInt64 = 0
+    private var pairingEpoch = ""
     private var queueMutations = 0
     private var queueDrainWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -27,6 +28,10 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
         queue = try? PhoneUploadQueue(directory: root)
         super.init()
         pairing = try? PairingKeychain.read(PhonePairing.self, account: "phone")
+        if pairing != nil {
+            pairingEpoch = UserDefaults.standard.string(forKey: "phone.uploadPairingEpoch") ?? UUID().uuidString
+            UserDefaults.standard.set(pairingEpoch, forKey: "phone.uploadPairingEpoch")
+        }
         lastSynced = UserDefaults.standard.object(forKey: "phone.lastSynced") as? Date
         let config = URLSessionConfiguration.background(withIdentifier: "org.localproactiveassistant.phone.upload")
         config.isDiscretionary = false
@@ -50,6 +55,8 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
         await drainQueueMutations()
         try await queue?.reset()
         try PairingKeychain.write(value, account: "phone")
+        pairingEpoch = UUID().uuidString
+        UserDefaults.standard.set(pairingEpoch, forKey: "phone.uploadPairingEpoch")
         pairing = value; lastSynced = nil; pendingCount = 0
         UserDefaults.standard.removeObject(forKey: "phone.lastSynced")
         status = "Paired with \(value.name)."
@@ -65,6 +72,8 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
         await drainQueueMutations()
         try PairingKeychain.remove(account: "phone")
         try await queue?.reset()
+        pairingEpoch = ""
+        UserDefaults.standard.removeObject(forKey: "phone.uploadPairingEpoch")
         pairing = nil; lastSynced = nil; pendingCount = 0
         UserDefaults.standard.removeObject(forKey: "phone.lastSynced")
         status = "Phone disconnected."
@@ -122,7 +131,7 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
             request.setValue(String((attributes[.size] as? NSNumber)?.intValue ?? 0), forHTTPHeaderField: "Content-Length")
             let task = session.uploadTask(with: request, fromFile: files[0])
             let sequence = (files[0].lastPathComponent as NSString).deletingPathExtension
-            task.taskDescription = Self.identity(of: pairing) + ":" + sequence
+            task.taskDescription = Self.identity(of: pairing, epoch: pairingEpoch) + ":" + sequence
             status = "Syncing phone context…"
             task.resume()
         } catch {
@@ -132,8 +141,8 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
         }
     }
 
-    nonisolated private static func identity(of pairing: PhonePairing) -> String {
-        let identity = [pairing.deviceID.uuidString, pairing.server.absoluteString,
+    nonisolated private static func identity(of pairing: PhonePairing, epoch: String) -> String {
+        let identity = [epoch, pairing.deviceID.uuidString, pairing.server.absoluteString,
             pairing.certificateSHA256, pairing.token].joined(separator: "\n")
         return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
     }
@@ -153,7 +162,7 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
 
     private func acknowledge(_ sequence: Int64, identity: String, generation: UInt64) async throws -> Bool {
         guard !pairingChanging, generation == pairingGeneration,
-              let pairing, Self.identity(of: pairing) == identity, let queue else { return false }
+              let pairing, Self.identity(of: pairing, epoch: pairingEpoch) == identity, let queue else { return false }
         queueMutations += 1
         defer { finishQueueMutation() }
         try await queue.acknowledge(sequence)
@@ -188,7 +197,7 @@ public final class PhoneUploadClient: NSObject, ObservableObject, URLSessionTask
         Task { @MainActor [self] in
             guard !pairingChanging, let pairing, let queue else { return }
             let generation = pairingGeneration
-            guard let identity, identity == Self.identity(of: pairing) else {
+            guard let identity, identity == Self.identity(of: pairing, epoch: pairingEpoch) else {
                 // An old pairing or pre-upgrade task cannot acknowledge this
                 // queue. Preserve its files and retry against the current Mac.
                 await uploadNext()

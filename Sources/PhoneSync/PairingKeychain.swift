@@ -54,7 +54,7 @@ public actor PhoneUploadQueue {
         let saved = (try? String(contentsOf: counterURL, encoding: .utf8)).flatMap { Int64($0) } ?? 0
         let highest = files.compactMap { Int64($0.deletingPathExtension().lastPathComponent) }.max() ?? 0
         let previous = max(saved, highest)
-        guard previous < Int64.max else { throw PhoneSyncFailure("Phone sync sequence is exhausted. Pair with your Mac again.") }
+        guard previous < Int64.max else { throw PhoneSyncFailure("Phone sync sequence is exhausted.") }
         let sequence = previous + 1
         let envelope = PhoneSyncEnvelope(deviceID: pairing.deviceID, sequence: sequence, sleepEnabled: sleepEnabled, sleep: sleep,
             activityEnabled: activityEnabled, activity: activity, locationEnabled: locationEnabled, location: location)
@@ -83,7 +83,14 @@ public actor PhoneUploadQueue {
     }
 
     public func reset() throws {
+        // The Mac deduplicates by device ID and sequence. Reusing the same QR
+        // must not restart numbering and silently discard its first new snapshot.
+        let counterURL = directory.appendingPathComponent("sequence")
+        let saved = (try? String(contentsOf: counterURL, encoding: .utf8)).flatMap { Int64($0) } ?? 0
+        let highest = try pending().compactMap { Int64($0.deletingPathExtension().lastPathComponent) }.max() ?? 0
+        try String(max(saved, highest)).write(to: counterURL, atomically: true, encoding: .utf8)
         for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            if file.lastPathComponent == "sequence" { continue }
             try FileManager.default.removeItem(at: file)
         }
     }

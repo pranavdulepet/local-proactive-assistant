@@ -131,7 +131,7 @@ struct MailStoreSourceTests {
         }
         if (Number(reply.numberOfItems) !== 6) throw new Error('Native descriptor fixture expected six script values; received ' + Number(reply.numberOfItems));
         var nativeDate = $.NSDate.dateWithTimeIntervalSince1970(1791140400);
-        reply.insertDescriptorAtIndex($.NSAppleEventDescriptor.alloc.initWithDate(nativeDate), 4);
+        reply.insertDescriptorAtIndex($.NSAppleEventDescriptor.descriptorWithDate(nativeDate), 4);
         if (Number(reply.numberOfItems) !== 7) throw new Error('Native descriptor fixture could not insert its date');
         var m = fixtureInbox[119];
         m.id = function() { return reply.descriptorAtIndex(1).int32Value; };

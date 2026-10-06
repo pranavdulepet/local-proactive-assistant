@@ -47,6 +47,23 @@ struct NativeConversationTests {
         #expect(await source.captured().isEmpty)
     }
 
+    @Test func modelCorrectsMalformedReadWithoutAskingOwnerToRepeatTheQuestion() async throws {
+        let source = NativeContextFixture()
+        let model = NativeConversationFixture(steps: [
+            AgentStep(text: "", calls: [AgentToolCall(id: "corrected-date",
+                call: ContextToolCall(tool: .calendar, from: "2026-10-07", to: "2026-10-08"))]),
+            AgentStep(text: "Your review is at 10 AM. [e1]", calls: [])
+        ], rejectFirst: true)
+        let answer = try await PersonalContextAgent(provider: model, source: source, availableTools: [.calendar])
+            .reply(message: "What's on tomorrow?", history: [])
+        #expect(answer.reply.text.contains("10 AM"))
+        #expect(await model.captured().count == 3)
+        #expect(await source.captured().count == 1)
+        let corrected = try #require(await model.captured().dropFirst().first)
+        #expect(corrected.messages.contains { $0.role == .user && $0.content == "What's on tomorrow?" })
+        #expect(corrected.messages.contains { $0.role == .system && $0.content.contains("Host feedback") })
+    }
+
     @Test func uncertainReplyLinkSurvivesRestartAndObservedAliasClearsQueueWithoutSending() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -74,11 +91,16 @@ private actor NativeConversationFixture: LocalModelProvider {
     nonisolated let modelID = "native-conversation-fixture"
     private var steps: [AgentStep]
     private var requests: [AgentRequest] = []
-    init(steps: [AgentStep]) { self.steps = steps }
+    private var rejectFirst: Bool
+    init(steps: [AgentStep], rejectFirst: Bool = false) { self.steps = steps; self.rejectFirst = rejectFirst }
     func availability() -> ModelAvailability { ModelAvailability(ready: true, detail: "fixture") }
     func answer(_ request: EvidenceRequest) throws -> GroundedAnswer { throw LocalModelFailure("Unexpected legacy evidence call") }
     func agentStep(_ request: AgentRequest) throws -> AgentStep {
         requests.append(request)
+        if rejectFirst {
+            rejectFirst = false
+            throw AgentProtocolFailure("Calendar requires explicit from/to dates.")
+        }
         guard !steps.isEmpty else { throw LocalModelFailure("Unexpected extra completion") }
         return steps.removeFirst()
     }
