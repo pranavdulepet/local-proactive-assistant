@@ -33,9 +33,9 @@ The starter walks through these steps:
 5. Send the exact one-time `LOCAL-...` pairing code from your iPhone to your private
    one-to-one self-chat. Confirm the chat found on the Mac. Phone and email aliases are
    resolved by the host; you do not enter a numeric chat ID.
-6. Choose whether to connect Mail, Notes, and Reminders now. Mail and Notes use macOS
+6. Choose whether to connect additional sources now. Mail and Notes use macOS
    Automation prompts; Reminders uses the normal Reminders permission dialog. You can
-   skip or deny a source and still chat. Calendar and Contacts request their own permissions.
+   skip or deny a source and still chat. Calendar, Contacts, and Photos request their own permissions.
 7. Leave the host running. The first reply may request Automation permission for Messages.
 
 Send `/status` to that same self-chat from your iPhone. Then ask naturally, for example:
@@ -63,6 +63,53 @@ whether they appear blue or gray because both sides use your account. Native typ
 when the existing transport supports it; otherwise a slow turn gets one short progress
 message. Setup does not require
 private Messages framework changes.
+
+## Use the Mac menu bar app
+
+After the guided starter has saved your model choice and paired your phone, stop the
+Terminal host with Control-C and install the native host:
+
+```bash
+bash scripts/install-mac-app.sh
+```
+
+It builds and installs `~/Applications/LocalAssistant.app`, bundles the Messages helper
+and assistant runtime, and opens the app. Later, double-click **LocalAssistant** in your
+Applications folder. The app starts your saved local model and Messages listener directly;
+you do not need to keep Terminal open or keep the repository folder after installation.
+Ollama and its downloaded weights remain installed separately on your Mac.
+
+Click the speech-bubble icon in the menu bar to:
+
+- Start or stop the host, and see its observed readiness and selected model.
+- Review source access with timestamps, refresh indexed coverage, and connect sources.
+- Add additional permitted file folders while the host is stopped.
+- View recent activity and open private log files.
+- Enable **Start at login**. If macOS asks, approve Local Assistant in Login Items.
+
+Allow **Local Assistant** Full Disk Access in Privacy & Security, then quit and reopen the
+app. Its Mail, Notes, Messages, Calendar, Contacts, Reminders, and Photos permissions can
+differ from the earlier Terminal grants. Use **Connect** in the app to request optional
+source access before asking about those sources from your phone. Denied sources are
+reported; they do not prevent ordinary chat once Messages and the model are ready.
+
+The app keeps an open Mac awake while serving. Keep the Mac online; closing the lid can
+still interrupt replies. It restarts a host that exits unexpectedly after becoming ready,
+with three attempts, and stops with an actionable status if startup fails. Stop and Quit
+terminate the processes the app owns, including its separate local Ollama server. They
+leave other Ollama instances alone. Stop a Terminal host before launching this app.
+
+This is a source-built, ad-hoc signed app. It is not a Developer ID signed, notarized
+download. The first model choice, model download, and phone pairing still use the guided
+starter; the native app currently reuses that completed setup. Updates can require renewed
+macOS access grants. To update, quit the app, pull the repository changes, and run the same
+installer. A failed signed package replacement restores the previous app and model worker.
+
+For packaging without changing your installed worker or launching the host:
+
+```bash
+bash scripts/install-mac-app.sh --build-only --output "$HOME/Desktop/LocalAssistant.app"
+```
 
 ## Model choices
 
@@ -136,8 +183,9 @@ respected when deliberately set.
 Your pairing, model selection, transcript, and source state are saved under
 `~/Library/Application Support/LocalProactiveAssistant/`. The model profile is plain data,
 not shell code. The starter keeps an open Mac awake while serving; closing the lid can
-still put it to sleep. This remains a foreground host. A signed downloadable host with a
-login item is planned, and the current ZIP is a source download rather than that app.
+still put it to sleep. The Terminal starter remains a foreground host. The native menu bar
+app can run without Terminal and can register itself as a login item. The current repository
+ZIP is a source download, not a notarized app installer.
 
 If you skipped source preparation, run this on the Mac:
 
@@ -152,10 +200,9 @@ does not mark access complete. Upgrading from the earlier Reminders Automation i
 prepares the new native Reminders permission once. `ASSISTANT_SKIP_ACCESS_SETUP=1 bash scripts/start.sh`
 skips this step for a run. `/status` reports source access and sync freshness.
 
-For phone-only data, pair the optional iPhone companion described in
-[local-models.md](local-models.md). The companion currently uses Apple's on-device model
-on supported iOS 26 devices while the app is open. It contributes permissioned phone
-context, and the Mac remains the Messages responder. It does not read every iPhone app.
+For phone-only data and on-device phone models, pair the optional iPhone companion described
+in [local-models.md](local-models.md). It contributes permissioned phone context, and the
+Mac remains the Messages responder. iOS grants access by source; it does not expose every app.
 
 ## Installation sources
 
@@ -166,3 +213,4 @@ context, and the Mac remains the Messages responder. It does not read every iPho
 - [Qwen3.5 model tags](https://ollama.com/library/qwen3.5/tags)
 - [imsg supported installation](https://github.com/openclaw/imsg/blob/main/docs/install.md)
 - [Homebrew official installer](https://github.com/Homebrew/install)
+- [Apple supported main-app login registration](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp)

@@ -182,8 +182,8 @@ fi
 model_choice=ollama
 model_url=""
 assistant_save_profile
-ASSISTANT_MODEL=local \
-ASSISTANT_MODEL_URL="$ollama_url/v1" \
+ASSISTANT_OLLAMA_READY=1 \
+ASSISTANT_MODEL=ollama \
+ASSISTANT_MODEL_URL="$ollama_url" \
 ASSISTANT_MODEL_NAME="$model_name" \
-ASSISTANT_LOCAL_REASONING_EFFORT="${ASSISTANT_LOCAL_REASONING_EFFORT:-none}" \
 bash scripts/start.sh

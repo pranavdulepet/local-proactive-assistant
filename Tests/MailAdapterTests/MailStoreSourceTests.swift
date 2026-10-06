@@ -95,6 +95,69 @@ struct MailStoreSourceTests {
         #expect(snapshot.searchComplete)
     }
 
+    @Test func inboxReadUsesLazyBulkMetadataAfterSuccessfulProbe() async throws {
+        var options = try MailStoreSource.SearchOptions(query: nil, offset: 0, limit: 8)
+        options.probe = true
+        #expect(try await runFixture(options: options).searchedMailboxes == 1)
+        options.probe = false
+        let snapshot = try await runFixture(options: options)
+        #expect(snapshot.messages.count == 8)
+        #expect(snapshot.messages[0].subject == "Ordinary news")
+        #expect(snapshot.messages[0].body.hasPrefix("Inbox body"))
+        #expect(snapshot.nextOffset == 8)
+        #expect(snapshot.searchComplete)
+    }
+
+    @Test func missingReceivedDateDoesNotAbortAnOtherwiseReadableEmail() async throws {
+        let snapshot = try await runFixture(query: "unread emails",
+            suffix: "fixtureInbox[119].dateReceived = function() { return null; };")
+        #expect(snapshot.messages.map(\.externalID) == ["inbox-119"])
+        #expect(snapshot.messages[0].receivedAt == nil)
+        #expect(snapshot.messages[0].body.hasPrefix("Inbox body"))
+        #expect(snapshot.readIssues.contains { $0.stage == .messageDates })
+        #expect(!snapshot.searchComplete)
+    }
+
+    @Test func realAppleEventDescriptorValuesDecodeDatesHeadersAndMissingValues() async throws {
+        let suffix = #"""
+        var scriptError = Ref();
+        var reply = $.NSAppleScript.alloc.initWithSource('return {119, "Maya", "Project review", current date, false, "Read the review before Friday", missing value}').executeAndReturnError(scriptError);
+        if (reply.numberOfItems !== 7) throw new Error('Descriptor fixture failed');
+        var m = fixtureInbox[119];
+        m.id = function() { return reply.descriptorAtIndex(1).int32Value; };
+        m.sender = function() { return reply.descriptorAtIndex(2).stringValue; };
+        m.subject = function() { return reply.descriptorAtIndex(3).stringValue; };
+        m.dateReceived = function() { return reply.descriptorAtIndex(4).dateValue; };
+        m.readStatus = function() { return reply.descriptorAtIndex(5).booleanValue; };
+        m.content = function() { return reply.descriptorAtIndex(6).stringValue; };
+        """#
+        let snapshot = try await runFixture(query: "unread emails", suffix: suffix)
+        #expect(snapshot.messages.map(\.externalID) == ["119"])
+        #expect(snapshot.messages[0].receivedAt != nil)
+        #expect(snapshot.messages[0].sender == "Maya")
+        #expect(snapshot.messages[0].subject == "Project review")
+        #expect(snapshot.messages[0].body == "Read the review before Friday")
+        let missing = try await runFixture(query: "unread emails", suffix: suffix +
+            "\nm.dateReceived = function() { return reply.descriptorAtIndex(7).dateValue; };")
+        #expect(missing.messages[0].receivedAt == nil)
+        #expect(missing.messages[0].body == "Read the review before Friday")
+    }
+
+    @Test func failedQueryReportsItsStageWithoutExposingMailContents() async throws {
+        do {
+            _ = try await runFixture(query: nil,
+                suffix: "fixtureInboxBox.messages.id = function() { throw {number: -2700, message: 'private@example.test Secret subject'}; };")
+            Issue.record("Expected the metadata read to fail")
+        } catch let failure as MailSourceFailure {
+            #expect(failure.code == .scriptFailure)
+            #expect(failure.appleEventCode == -2700)
+            #expect(failure.stage == .messageIdentifiers)
+            #expect(failure.description.contains("message identifiers"))
+            #expect(!failure.description.contains("private@example.test"))
+            #expect(!failure.description.contains("Secret subject"))
+        }
+    }
+
     @Test func decoderRejectsDuplicateIDsOversizedBodiesAndInvalidPagination() throws {
         let record = MailMessageRecord(externalID: "1", sender: "Maya", subject: "Review", receivedAt: Date(), unread: true, body: "body")
         let encoder = JSONEncoder()
@@ -114,7 +177,7 @@ struct MailStoreSourceTests {
     @Test func diagnosticsDistinguishPermissionsAccountsTimeoutAndScriptingWithoutLeakingData() throws {
         for (code, expected) in [("permissionDenied", MailSourceFailure.Code.permissionDenied),
                                  ("noAccounts", .noAccounts), ("mailboxUnavailable", .mailboxUnavailable), ("mailNotRunning", .mailNotRunning),
-                                 ("timedOut", .timedOut), ("unsupportedSearch", .unsupportedSearch)] {
+                                 ("timedOut", .timedOut), ("unsupportedSearch", .unsupportedSearch), ("scriptFailure", .scriptFailure)] {
             do {
                 _ = try MailStoreSource.decode(Data("{\"error\":{\"code\":\"\(code)\",\"number\":null}}".utf8))
                 Issue.record("Expected a classified Mail failure")
@@ -129,6 +192,7 @@ struct MailStoreSourceTests {
         #expect(!denied.description.contains("secret subject"))
         #expect(MailStoreSource.processFailure("Helper request exceeded its 18s deadline").code == .timedOut)
         #expect(MailStoreSource.processFailure("unrecognized private content (-1708)").code == .unsupportedSearch)
+        #expect(MailStoreSource.processFailure("JavaScript exception private deadline subject (-2700)").code == .scriptFailure)
     }
 
     @Test func searchDatesUseWholeDaysAndRejectOversizedRequests() throws {
@@ -171,10 +235,22 @@ struct MailStoreSourceTests {
             return false;
         });
     }
+    function collection(items) {
+        // A Mail result is an object specifier, not an eager array of stable Message objects.
+        var messages = function() { throw {number: -2700, message: 'Cannot eagerly resolve Mail references'}; };
+        ['id', 'dateReceived', 'sender', 'subject', 'readStatus'].forEach(function(key) {
+            messages[key] = function() { return items.map(function(item) { return item[key](); }); };
+        });
+        messages.whose = function(condition) { return collection(items.filter(function(item) { return matches(item, condition); })); };
+        messages.byId = function(id) {
+            var value = items.filter(function(item) { return String(plainMailValue(item.id())) === String(id); })[0];
+            if (!value) throw {number: -1728, message: 'Missing message'};
+            return value;
+        };
+        return messages;
+    }
     function box(name, items, children) {
-        var messages = function() { return items; };
-        messages.whose = function(condition) { return function() { return items.filter(function(item) { return matches(item, condition); }); }; };
-        return {name: function() { return name; }, messages: messages, mailboxes: function() { return children || []; }};
+        return {name: function() { return name; }, messages: collection(items), mailboxes: function() { return children || []; }};
     }
     var fixtureInbox = [], fixtureArchive = [];
     for (var i = 0; i < 120; i++) fixtureInbox.push(message('inbox-' + i, i, 'Ordinary news', 'Inbox body ' + 'x'.repeat(3000), i === 119));

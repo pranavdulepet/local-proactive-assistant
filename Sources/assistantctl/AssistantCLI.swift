@@ -15,6 +15,7 @@ import PhoneSync
 @main
 struct AssistantCLI {
     static func main() async {
+        setvbuf(stdout, nil, _IOLBF, 0)
         do {
             try await run()
         } catch {
@@ -72,11 +73,10 @@ struct AssistantCLI {
             let source = IndexedContextSource(store: store, mail: MailStoreSource(),
                 additional: MacContextSource(requestPermissions: true), access: access)
             var unavailable = 0
-            for tool in [ContextTool.mailInbox, .notes, .reminders] {
+            for tool in [ContextTool.mailInbox, .notes, .reminders, .photos] {
                 do {
                     if tool == .mailInbox {
-                        try await MailStoreSource().checkAccess()
-                        try await access.record(tool: .mailInbox, ready: true, detail: "Mail metadata is readable; search coverage is checked per question.")
+                        _ = try await source.execute(ContextToolCall(tool: .mailInbox, limit: 1))
                     } else {
                         _ = try await source.execute(ContextToolCall(tool: tool))
                     }
@@ -340,7 +340,8 @@ struct AssistantCLI {
                 store: answerStore, provider: selected, transport: controlTransport,
                 ledger: ledger, chatID: chat, history: chatHistory, inbox: inbox,
                 mail: MailStoreSource(), contextSource: contextSource,
-                contextTools: ContextTool.allCases, verbose: verbose, replyPrefix: "Assistant: "
+                contextTools: ContextTool.allCases, verbose: verbose, replyPrefix: "Assistant: ",
+                ownerChatIDs: ownerRouteIDs
             ) }
             let sessions: [ControlSession] = selfChats.map { route in
                 let service = EchoService(
@@ -369,18 +370,26 @@ struct AssistantCLI {
                         guard verbose else { return }
                         print("chat \(route.id.rawValue) row \(cursor.rawValue): \(detail)")
                     },
-                    echoChatIDs: ownerRouteIDs
+                    echoChatIDs: ownerRouteIDs,
+                    onSubmissionReconciled: { receipt in
+                        try? await inbox.reconcile(requestID: receipt.requestID)
+                    }
                 )
                 return ControlSession(chatID: route.id, service: service, conversation: conversation)
             }
             print("Ready. Text your Messages self-chat from your iPhone.")
             print("/status shows source access. Control-C stops the assistant.")
-            print("Keep this window open and your Mac awake and online. Closing the lid can stop replies.")
+            if ProcessInfo.processInfo.environment["ASSISTANT_NATIVE_HOST"] == "1" {
+                print("The menu bar app keeps the host running. This Mac must stay awake and online.")
+            } else {
+                print("Keep this window open and your Mac awake and online. Closing the lid can stop replies.")
+            }
             if verbose { print("Refresh: Messages every minute; Calendar and Contacts every 15 minutes.") }
             if model != nil {
                 let work = await inbox.counts()
                 if verbose { print("Replies: \(work.queued) pending, \(work.uncertain) uncertain, \(work.failed) failed.") }
                 await conversation?.resumePending()
+                Task { await conversation?.reconcilePendingSubmissions() }
             }
             if selfChats.count == 1 && verbose {
                 print("Only one route found. If your self-chat also uses another phone or email, "
@@ -391,10 +400,14 @@ struct AssistantCLI {
                 contacts: ContactsStoreSource(), store: store,
                 controlChatIDs: Set(selfChats.map(\.id))
             )
+            let stopSignals = HostStopSignals()
             let reminders = ProactiveReminderService(store: store, transport: controlTransport,
                 ledger: ledger, replyPrefix: "Assistant: ")
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        for await _ in stopSignals.events { return }
+                    }
                     for session in sessions {
                         let resumeCursor = await cursorStore.cursor(for: session.chatID)
                         if let resumeCursor, verbose {
@@ -452,6 +465,7 @@ struct AssistantCLI {
                                     print("proactive submission uncertain; reminders paused. Check /status before /resume.")
                                 }
                             }
+                            await conversation?.reconcilePendingSubmissions()
                             try await Task.sleep(for: .seconds(60))
                         }
                     }
@@ -670,6 +684,11 @@ struct AssistantCLI {
     private static func selectedModel(_ model: String, url: String?, name: String?) throws -> any LocalModelProvider {
         switch model {
         case "apple": return MacModelProvider()
+        case "ollama":
+            guard let url, let parsed = URL(string: url), let name else {
+                throw CLIError("Ollama needs --model-url http://127.0.0.1:11435 and --model-name <installed-model>.")
+            }
+            return try OllamaModelProvider(baseURL: parsed, modelName: name)
         case "local":
             guard let url, let parsed = URL(string: url), let name else {
                 throw CLIError("Local model needs --model-url http://127.0.0.1:<port>/v1 and --model-name <installed-model>.")
@@ -679,7 +698,7 @@ struct AssistantCLI {
                 reasoningEffort: ProcessInfo.processInfo.environment["ASSISTANT_LOCAL_REASONING_EFFORT"]
             )
         default:
-            throw CLIError("Use --model apple or --model local.")
+            throw CLIError("Use --model apple, --model ollama or --model local.")
         }
     }
 
@@ -725,7 +744,7 @@ struct AssistantCLI {
           assistantctl pair-chat [--imsg <path>]
           assistantctl add-self-handle --address <your phone or email>
           assistantctl echo --chat-id <id> [--after <rowid>] [--imsg <path>]
-          assistantctl serve [--control-chat-id <id>] [--model apple|local] [--model-url <loopback-url> --model-name <model>] [--read-root <folder>] [--imsg <path>]
+          assistantctl serve [--control-chat-id <id>] [--model apple|ollama|local] [--model-url <loopback-url> --model-name <model>] [--read-root <folder>] [--imsg <path>]
           assistantctl pair-phone [--host <local-hostname-or-LAN-IP>]
           assistantctl unpair-phone
           assistantctl model-status
@@ -762,4 +781,23 @@ private struct CLIError: Error, CustomStringConvertible {
     init(_ description: String) {
         self.description = description
     }
+}
+
+/// Native and Terminal hosts use the same orderly shutdown path.
+private final class HostStopSignals: @unchecked Sendable {
+    let events: AsyncStream<Void>
+    private let sources: [DispatchSourceSignal]
+    init() {
+        let pair = AsyncStream<Void>.makeStream()
+        events = pair.stream
+        signal(SIGINT, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
+        sources = [SIGINT, SIGTERM].map { number in
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
+            source.setEventHandler { pair.continuation.yield(()); pair.continuation.finish() }
+            source.resume()
+            return source
+        }
+    }
+    deinit { for source in sources { source.cancel() } }
 }

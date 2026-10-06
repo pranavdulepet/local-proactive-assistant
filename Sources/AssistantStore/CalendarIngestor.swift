@@ -106,6 +106,7 @@ public struct CalendarIngestor: Sendable {
             versionHash: versionHash,
             sourceRevision: revision,
             sourceTimestamp: event.startDate,
+            sourceEndTimestamp: event.endDate,
             trust: .structuredSource,
             handles: PersonHandle.normalize(
                 [event.organizer].compactMap { $0 } + event.attendees

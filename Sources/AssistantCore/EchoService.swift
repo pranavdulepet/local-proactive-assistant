@@ -36,6 +36,7 @@ public struct EchoService: Sendable {
     private let reconnectDelay: @Sendable (Int) -> TimeInterval
     private let onReconnect: @Sendable (Int, TimeInterval, String) -> Void
     private let onProgress: @Sendable (TransportCursor, String) -> Void
+    private let onSubmissionReconciled: @Sendable (SendReceipt) async -> Void
     private let echoChatIDs: Set<TransportChatID>
 
     public init(
@@ -50,7 +51,8 @@ public struct EchoService: Sendable {
         },
         onReconnect: @escaping @Sendable (Int, TimeInterval, String) -> Void = { _, _, _ in },
         onProgress: @escaping @Sendable (TransportCursor, String) -> Void = { _, _ in },
-        echoChatIDs: Set<TransportChatID> = []
+        echoChatIDs: Set<TransportChatID> = [],
+        onSubmissionReconciled: @escaping @Sendable (SendReceipt) async -> Void = { _ in }
     ) {
         self.transport = transport
         self.ledger = ledger
@@ -61,6 +63,7 @@ public struct EchoService: Sendable {
         self.reconnectDelay = reconnectDelay
         self.onReconnect = onReconnect
         self.onProgress = onProgress
+        self.onSubmissionReconciled = onSubmissionReconciled
         self.echoChatIDs = echoChatIDs
     }
 
@@ -85,6 +88,19 @@ public struct EchoService: Sendable {
                         do {
                             for try await message in inbound {
                                 reconnectAttempt = 0
+                                guard message.chatID == chatID else {
+                                    continuation.yield(EchoEvent(inbound: message,
+                                        decision: .reject(.wrongChat), receipt: nil))
+                                    continue
+                                }
+                                if let receipt = try await ledger.reconcileSubmission(
+                                    message, in: echoChatIDs.union([chatID])
+                                ) {
+                                    // An alias echo can arrive while the original send's
+                                    // single-chat verifier is still waiting. Persist its
+                                    // actual GUID before echo filtering advances the cursor.
+                                    await onSubmissionReconciled(receipt)
+                                }
                                 let decision = try await filter.evaluate(
                                     message,
                                     after: lastCursor
@@ -160,7 +176,8 @@ public struct EchoService: Sendable {
                                     onProgress(message.cursor, "send returned in \(Int(Date().timeIntervalSince(sendStarted)))s")
                                     try await ledger.confirm(
                                         requestID: outbound.requestID,
-                                        messageGUID: receipt.messageGUID
+                                        messageGUID: receipt.messageGUID,
+                                        rowID: receipt.rowID
                                     )
                                     continuation.yield(
                                         EchoEvent(
@@ -182,6 +199,21 @@ public struct EchoService: Sendable {
                                         )
                                     )
                                 } catch {
+                                    var reconciled = await ledger.confirmedReceipt(requestID: outbound.requestID)
+                                    if reconciled == nil, let entry = await ledger.entry(requestID: outbound.requestID) {
+                                        reconciled = try? await transport.reconcileSubmission(
+                                            for: entry, in: echoChatIDs.union([chatID])
+                                        )
+                                    }
+                                    if let receipt = reconciled {
+                                        try await ledger.confirm(requestID: receipt.requestID,
+                                            messageGUID: receipt.messageGUID, rowID: receipt.rowID)
+                                        await onSubmissionReconciled(receipt)
+                                        onProgress(message.cursor, "outgoing submission observed in a verified self-chat alias")
+                                        continuation.yield(EchoEvent(inbound: message, decision: .accept,
+                                            receipt: receipt, sendOutcome: .confirmed))
+                                        continue
+                                    }
                                     onProgress(message.cursor, "send outcome unknown after \(Int(Date().timeIntervalSince(sendStarted)))s")
                                     // The send may already be visible on the phone. The
                                     // input is checkpointed; keep echo suppression and listen.

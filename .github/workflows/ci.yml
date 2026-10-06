@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check starter syntax
-        run: bash -n scripts/start.sh scripts/start-open-model.sh scripts/startup-common.sh scripts/Assistant.command
+        run: bash -n scripts/start.sh scripts/start-open-model.sh scripts/startup-common.sh scripts/Assistant.command scripts/install-mac-app.sh scripts/test-mac-host.sh
       - name: Test guided setup and open-model recovery
         run: python3 -m unittest discover -s Tests/ScriptTests -p 'test_*.py'
       - name: Test
@@ -32,6 +32,15 @@ jobs:
         run: |
           ./scripts/setup-local-model.sh
           ./scripts/check-model-worker.sh
+      - name: Test native host lifecycle
+        if: matrix.runner == 'macos-26'
+        run: bash scripts/test-mac-host.sh
+      - name: Build and verify native Mac app
+        if: matrix.runner == 'macos-26'
+        run: |
+          brew install steipete/tap/imsg
+          bash scripts/install-mac-app.sh --build-only --output "$RUNNER_TEMP/LocalAssistant.app"
+          "$RUNNER_TEMP/LocalAssistant.app/Contents/MacOS/LocalAssistant" --check-payload
   phone:
     runs-on: macos-26
     steps:

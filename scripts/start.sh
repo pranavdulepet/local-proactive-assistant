@@ -45,12 +45,18 @@ if [[ "${ASSISTANT_STARTUP_MODEL_SHOWN:-0}" != 1 ]]; then
 fi
 
 case "$model_choice" in
-    ollama)
-        export ASSISTANT_OPEN_MODEL="$model_name"
-        exec bash scripts/start-open-model.sh ;;
-    local)
-        if ! assistant_valid_model_name "$model_name" || ! assistant_valid_endpoint "$model_url"; then
-            echo "Choose a loaded model and a literal loopback http://127.0.0.1:<port>/v1 endpoint." >&2
+    ollama|local)
+        if [[ "$model_choice" == ollama && "${ASSISTANT_OLLAMA_READY:-0}" != 1 ]]; then
+            export ASSISTANT_OPEN_MODEL="$model_name"
+            exec bash scripts/start-open-model.sh
+        fi
+        if [[ "$model_choice" == local ]]; then
+            if ! assistant_valid_model_name "$model_name" || ! assistant_valid_endpoint "$model_url"; then
+                echo "Choose a loaded model and a literal loopback http://127.0.0.1:<port>/v1 endpoint." >&2
+                exit 1
+            fi
+        elif [[ "$model_url" != http://127.0.0.1:11435 ]] || ! assistant_valid_tag "$model_name"; then
+            echo "The owned Ollama server is not configured correctly. Rerun the starter." >&2
             exit 1
         fi
         assistant_stage 'Preparing the assistant...'
@@ -59,7 +65,7 @@ case "$model_choice" in
             assistant_log_hint
             exit 1
         fi
-        model_args=(--model local --model-url "$model_url" --model-name "$model_name") ;;
+        model_args=(--model "$model_choice" --model-url "$model_url" --model-name "$model_name") ;;
     apple)
         if ! assistant_apple_eligible; then
             echo "Apple inference requires Apple silicon, macOS 26+, and Xcode 26+." >&2
@@ -95,7 +101,7 @@ if [[ ! -s "$control_config" ]]; then
 fi
 
 if ! assistant_access_prepared && [[ "${ASSISTANT_SKIP_ACCESS_SETUP:-0}" != 1 ]]; then
-    echo "Mail, Notes, and Reminders can answer personal questions after you allow access."
+    echo "Mail, Notes, Reminders, and Photos can answer personal questions after you allow access."
     connect_sources=y
     if [[ -t 0 ]]; then
         IFS= read -r -p "Connect them now? [Y/n]: " connect_sources || connect_sources=n

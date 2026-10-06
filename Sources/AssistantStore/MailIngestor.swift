@@ -18,8 +18,8 @@ public struct MailIngestor: Sendable {
 
     /// Return the current page as well as indexing it. Callers answer from this page, not an older cached search.
     @discardableResult
-    public func refresh(query: String? = nil, offset: Int = 0, now: Date = Date()) async throws -> MailSnapshot {
-        let snapshot = try await source.searchSnapshot(query: query, offset: offset)
+    public func refresh(query: String? = nil, offset: Int = 0, limit: Int = 100, now: Date = Date()) async throws -> MailSnapshot {
+        let snapshot = try await source.searchSnapshot(query: query, offset: offset, limit: limit)
         let savedCursor = try await store.sourceCursor(for: .mail)
         let previous = savedCursor.flatMap(Int64.init) ?? 0
         let revision = max(previous + 1, Int64(now.timeIntervalSince1970 * 1_000))
@@ -47,8 +47,9 @@ public struct MailIngestor: Sendable {
 
     public static func text(for record: MailMessageRecord) -> String {
         let mailbox = record.mailbox.map { "\nMailbox: \(singleLine($0))" } ?? ""
+        let received = record.receivedAt == nil ? "\nReceived time: unavailable" : ""
         let body = record.bodyAvailable ? record.body : "[Message body unavailable; metadata only.]"
-        return "From: \(singleLine(record.sender))\nSubject: \(singleLine(record.subject))\nUnread: \(record.unread ? "yes" : "no")\(mailbox)\nBody excerpt: \(body)"
+        return "From: \(singleLine(record.sender))\nSubject: \(singleLine(record.subject))\nUnread: \(record.unread ? "yes" : "no")\(received)\(mailbox)\nBody excerpt: \(body)"
     }
 
     private static func singleLine(_ text: String) -> String {

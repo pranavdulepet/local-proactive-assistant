@@ -14,6 +14,7 @@ public actor ConversationInbox {
         public let chatID: TransportChatID
         public let acceptedAt: Date
         public var state: State
+        public var outboundRequestID: UUID? = nil
     }
 
     public enum EnqueueResult: Equatable, Sendable { case accepted, duplicate, full }
@@ -99,6 +100,27 @@ public actor ConversationInbox {
         turns[index].state = state
         turns = Self.retained(turns)
         do { try persist() } catch { turns = previous; throw error }
+    }
+
+    public func markSending(_ id: String, requestID: UUID) throws {
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        let previous = turns[index]
+        turns[index].outboundRequestID = requestID
+        turns[index].state = .sending
+        do { try persist() } catch { turns[index] = previous; throw error }
+    }
+
+    public func uncertainTurns() -> [Turn] {
+        turns.filter { $0.state == .uncertain || $0.state == .sending }
+    }
+
+    public func reconcile(requestID: UUID) throws {
+        guard let index = turns.firstIndex(where: {
+            $0.outboundRequestID == requestID && ($0.state == .uncertain || $0.state == .sending)
+        }) else { return }
+        let previous = turns[index].state
+        turns[index].state = .submitted
+        do { try persist() } catch { turns[index].state = previous; throw error }
     }
 
     public func hasQueued() -> Bool { turns.contains { $0.state == .queued } }

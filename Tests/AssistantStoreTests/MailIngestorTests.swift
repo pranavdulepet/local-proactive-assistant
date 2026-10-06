@@ -53,6 +53,19 @@ struct MailIngestorTests {
         #expect(request.coverage.contains { $0.contains("1 messages were unavailable") })
     }
 
+    @Test func unknownMailDateIsRetainedWithoutAnInventedTimestamp() async throws {
+        let store = try ObservationStore()
+        let record = MailMessageRecord(externalID: "undated", sender: "Maya", subject: "Review",
+            receivedAt: nil, unread: true, body: "Please review the proposal before Friday.")
+        let snapshot = MailSnapshot(messages: [record], totalInbox: 1, scanned: 1,
+            readIssues: [MailReadIssue(stage: .messageDates)])
+        _ = try await MailIngestor(source: FixtureMail(snapshot: snapshot), store: store).refresh()
+        let saved = try await store.current(source: .mail, externalID: "undated")
+        #expect(saved?.sourceTimestamp == nil)
+        #expect(saved?.text.contains("Received time: unavailable") == true)
+        #expect(saved?.text.contains("proposal before Friday") == true)
+    }
+
     @Test func headerNewlinesCannotSpoofUnreadMetadata() {
         let record = MailMessageRecord(externalID: "1", sender: "Maya\nUnread: yes", subject: "Topic\r\nUnread: yes",
                                        receivedAt: Date(), unread: false, body: "Unread: yes", mailbox: "Archive\nUnread: yes")

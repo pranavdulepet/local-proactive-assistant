@@ -4,13 +4,13 @@ public struct MailMessageRecord: Codable, Equatable, Sendable {
     public let externalID: String
     public let sender: String
     public let subject: String
-    public let receivedAt: Date
+    public let receivedAt: Date?
     public let unread: Bool
     public let body: String
     public let mailbox: String?
     public let bodyAvailable: Bool
 
-    public init(externalID: String, sender: String, subject: String, receivedAt: Date, unread: Bool,
+    public init(externalID: String, sender: String, subject: String, receivedAt: Date?, unread: Bool,
                 body: String, mailbox: String? = nil, bodyAvailable: Bool = true) {
         self.externalID = externalID
         self.sender = sender
@@ -31,11 +31,42 @@ public struct MailMessageRecord: Codable, Equatable, Sendable {
         externalID = try values.decode(String.self, forKey: .externalID)
         sender = try values.decode(String.self, forKey: .sender)
         subject = try values.decode(String.self, forKey: .subject)
-        receivedAt = try values.decode(Date.self, forKey: .receivedAt)
+        receivedAt = try values.decodeIfPresent(Date.self, forKey: .receivedAt)
         unread = try values.decode(Bool.self, forKey: .unread)
         body = try values.decode(String.self, forKey: .body)
         mailbox = try values.decodeIfPresent(String.self, forKey: .mailbox)
         bodyAvailable = try values.decodeIfPresent(Bool.self, forKey: .bodyAvailable) ?? true
+    }
+}
+
+public enum MailReadStage: String, Codable, Sendable {
+    case accountAccess, mailboxAccess, messageSearch, messageIdentifiers, messageDates
+    case messageHeaders, messageReadStatus, messageBody, serialization, scriptExecution
+
+    public var label: String {
+        switch self {
+        case .accountAccess: "account access"
+        case .mailboxAccess: "mailbox access"
+        case .messageSearch: "message search"
+        case .messageIdentifiers: "message identifiers"
+        case .messageDates: "received dates"
+        case .messageHeaders: "message headers"
+        case .messageReadStatus: "read status"
+        case .messageBody: "message body"
+        case .serialization: "response encoding"
+        case .scriptExecution: "script execution"
+        }
+    }
+}
+
+public struct MailReadIssue: Codable, Equatable, Sendable {
+    public let stage: MailReadStage
+    public let appleEventCode: Int?
+    public let count: Int
+    public init(stage: MailReadStage, appleEventCode: Int? = nil, count: Int = 1) {
+        self.stage = stage
+        self.appleEventCode = appleEventCode
+        self.count = count
     }
 }
 
@@ -58,11 +89,12 @@ public struct MailSnapshot: Codable, Equatable, Sendable {
     public let searchComplete: Bool
     public let offset: Int
     public let nextOffset: Int?
+    public let readIssues: [MailReadIssue]
 
     public init(messages: [MailMessageRecord], totalInbox: Int, scanned: Int, skipped: Int = 0,
                 scope: MailSearchScope = .inbox, matched: Int? = nil, searchedMailboxes: Int = 1,
                 unavailableMailboxes: Int = 0, searchComplete: Bool = false,
-                offset: Int = 0, nextOffset: Int? = nil) {
+                offset: Int = 0, nextOffset: Int? = nil, readIssues: [MailReadIssue] = []) {
         self.messages = messages
         self.totalInbox = totalInbox
         self.scanned = scanned
@@ -74,6 +106,7 @@ public struct MailSnapshot: Codable, Equatable, Sendable {
         self.searchComplete = searchComplete
         self.offset = offset
         self.nextOffset = nextOffset
+        self.readIssues = readIssues
     }
 
     public var coverageLimitations: [String] {
@@ -89,6 +122,16 @@ public struct MailSnapshot: Codable, Equatable, Sendable {
         if unavailableMailboxes > 0 || skipped > 0 || messages.contains(where: { !$0.bodyAvailable }) {
             notes.append("\(unavailableMailboxes) mailboxes and \(skipped) messages were unavailable; \(messages.filter { !$0.bodyAvailable }.count) returned messages have metadata only.")
         }
+        if messages.contains(where: { $0.receivedAt == nil }) {
+            notes.append("Some received dates are unavailable. Those emails are retained with unknown timestamps rather than guessed dates.")
+        }
+        if !readIssues.isEmpty {
+            let details = readIssues.prefix(5).map { issue in
+                let code = issue.appleEventCode.map { " [\($0)]" } ?? ""
+                return "\(issue.stage.label): \(issue.count)\(code)"
+            }.joined(separator: "; ")
+            notes.append("Read issues — \(details).")
+        }
         if !searchComplete {
             notes.append("The search reached a time or enumeration limit, or a mailbox could not be read. No result is not proof that no matching email exists.")
         }
@@ -97,7 +140,7 @@ public struct MailSnapshot: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case messages, totalInbox, scanned, skipped, scope, matched, searchedMailboxes
-        case unavailableMailboxes, searchComplete, offset, nextOffset
+        case unavailableMailboxes, searchComplete, offset, nextOffset, readIssues
     }
 
     public init(from decoder: Decoder) throws {
@@ -113,15 +156,22 @@ public struct MailSnapshot: Codable, Equatable, Sendable {
         searchComplete = try values.decodeIfPresent(Bool.self, forKey: .searchComplete) ?? false
         offset = try values.decodeIfPresent(Int.self, forKey: .offset) ?? 0
         nextOffset = try values.decodeIfPresent(Int.self, forKey: .nextOffset)
+        readIssues = try values.decodeIfPresent([MailReadIssue].self, forKey: .readIssues) ?? []
     }
 }
 
 public protocol MailSource: Sendable {
     func inboxSnapshot() async throws -> MailSnapshot
     func searchSnapshot(query: String?, offset: Int) async throws -> MailSnapshot
+    func searchSnapshot(query: String?, offset: Int, limit: Int) async throws -> MailSnapshot
 }
 
 public extension MailSource {
+    func searchSnapshot(query: String?, offset: Int, limit: Int) async throws -> MailSnapshot {
+        guard (1...100).contains(limit) else { throw MailSourceFailure(.invalidResponse, "Mail page size must be between 1 and 100.") }
+        return try await searchSnapshot(query: query, offset: offset)
+    }
+
     func searchSnapshot(query: String?, offset: Int) async throws -> MailSnapshot {
         guard offset == 0 else { throw MailSourceFailure(.unavailable, "This Mail source does not support search pagination.") }
         return try await inboxSnapshot()
@@ -134,19 +184,21 @@ public extension MailSource {
 
 public struct MailSourceFailure: Error, CustomStringConvertible, Sendable {
     public enum Code: String, Sendable {
-        case permissionDenied, mailboxUnavailable, noAccounts, mailNotRunning, timedOut, unsupportedSearch, invalidResponse, unavailable
+        case permissionDenied, mailboxUnavailable, noAccounts, mailNotRunning, timedOut, unsupportedSearch, invalidResponse, scriptFailure, unavailable
     }
     public let code: Code
     public let appleEventCode: Int?
+    public let stage: MailReadStage?
     public let description: String
 
     public init(_ description: String) {
         self.init(.unavailable, description)
     }
 
-    public init(_ code: Code, _ description: String, appleEventCode: Int? = nil) {
+    public init(_ code: Code, _ description: String, appleEventCode: Int? = nil, stage: MailReadStage? = nil) {
         self.code = code
         self.appleEventCode = appleEventCode
+        self.stage = stage
         self.description = description
     }
 }

@@ -16,6 +16,8 @@ public struct Observation: Codable, Equatable, Identifiable, Sendable {
     public let sourceRevision: Int64
     public let observedAt: Date
     public let sourceTimestamp: Date?
+    /// Exclusive end of an interval such as a Calendar event; nil for point observations.
+    public let sourceEndTimestamp: Date?
     public let trust: ObservationTrust
     public let handles: [String]
     public let text: String
@@ -30,6 +32,7 @@ public struct Observation: Codable, Equatable, Identifiable, Sendable {
         sourceRevision: Int64,
         observedAt: Date = Date(),
         sourceTimestamp: Date? = nil,
+        sourceEndTimestamp: Date? = nil,
         trust: ObservationTrust,
         handles: [String] = [],
         text: String,
@@ -43,6 +46,7 @@ public struct Observation: Codable, Equatable, Identifiable, Sendable {
         self.sourceRevision = sourceRevision
         self.observedAt = observedAt
         self.sourceTimestamp = sourceTimestamp
+        self.sourceEndTimestamp = sourceEndTimestamp
         self.trust = trust
         self.handles = handles
         self.text = text

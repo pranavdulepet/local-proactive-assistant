@@ -261,13 +261,13 @@ assistant_save_profile() {
 }
 
 assistant_mark_access_prepared() {
-    local marker="$assistant_support_dir/access-prepared-v2.txt" staging
+    local marker="$assistant_support_dir/access-prepared-v3.txt" staging
     if [[ -L "$marker" || ( -e "$marker" && ! -f "$marker" ) ]]; then
         echo "Source access was granted, but the preparation marker could not be saved." >&2
         return 1
     fi
     staging="$(mktemp "$assistant_support_dir/.access-prepared.XXXXXX")"
-    printf '2\n' > "$staging"
+    printf '3\n' > "$staging"
     if ! mv "$staging" "$marker"; then
         rm -f "$staging"
         echo "Source access was granted, but its setup state could not be saved." >&2
@@ -276,9 +276,9 @@ assistant_mark_access_prepared() {
 }
 
 assistant_access_prepared() {
-    local marker="$assistant_support_dir/access-prepared-v2.txt"
+    local marker="$assistant_support_dir/access-prepared-v3.txt"
     [[ -f "$marker" && ! -L "$marker" && "$(wc -c < "$marker")" -eq 2 ]] || return 1
-    [[ "$(cat "$marker")" == 2 ]]
+    [[ "$(cat "$marker")" == 3 ]]
 }
 
 assistant_choose_model() {

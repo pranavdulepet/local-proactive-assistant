@@ -37,6 +37,8 @@ public struct IndexedContextSource: ReadContextSource {
 
     private func read(_ call: ContextToolCall) async throws -> ContextToolResult {
         switch call.tool {
+        case .messages, .calendar, .contacts:
+            return try await EvidenceRetriever(store: store).read(call)
         case .searchIndex:
             guard let query = call.query, !query.isEmpty else {
                 throw LocalModelFailure("An indexed search needs a question or search terms.")
@@ -52,7 +54,7 @@ public struct IndexedContextSource: ReadContextSource {
             return ContextToolResult(records: request.records, coverage: request.coverage)
         case .mailInbox:
             guard let mail else { throw MailSourceFailure("Apple Mail is not enabled on this host.") }
-            do { return try await mailResult(query: call.query, source: mail) }
+            do { return try await mailResult(query: call.query, offset: call.offset ?? 0, limit: call.limit ?? 8, source: mail) }
             catch {
                 try? await store.markSourceUnavailable(.mail)
                 throw error
@@ -65,9 +67,9 @@ public struct IndexedContextSource: ReadContextSource {
         }
     }
 
-    private func mailResult(query: String?, source: any MailSource) async throws -> ContextToolResult {
-        let snapshot = try await MailIngestor(source: source, store: store).refresh(query: query)
-        let records = snapshot.messages.prefix(8).enumerated().map { index, record in
+    private func mailResult(query: String?, offset: Int = 0, limit: Int = 8, source: any MailSource) async throws -> ContextToolResult {
+        let snapshot = try await MailIngestor(source: source, store: store).refresh(query: query, offset: offset, limit: limit)
+        let records = snapshot.messages.prefix(limit).enumerated().map { index, record in
             EvidenceRecord(id: "e\(index + 1)", source: "mail", timestamp: record.receivedAt,
                 text: EvidenceText.bounded(MailIngestor.text(for: record), bytes: 768),
                 locator: EvidenceText.bounded(MailIngestor.locator(for: record), bytes: 256), trust: "unknownExternal")

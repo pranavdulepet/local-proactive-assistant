@@ -39,6 +39,10 @@ public actor SourceAccessRegistry {
         case .reminders: "Reminders"
         case .searchFiles, .readFile: "Documents"
         case .searchIndex: "Personal index"
+        case .messages: "Messages"
+        case .calendar: "Calendar"
+        case .contacts: "Contacts"
+        case .photos: "Photos"
         case .deviceInfo: "Mac information"
         }
     }
