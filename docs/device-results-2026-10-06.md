@@ -43,7 +43,8 @@ These issues are not closed by the checks below.
 | --- | --- | --- |
 | `bash scripts/start.sh` in the original checkout | Release build and Ollama startup passed; Messages doctor failed opening the database read-only | The assistant did not reach serving readiness |
 | Full Disk Access settings | Terminal enabled; Codex not listed as granted | Terminal's grant does not cover commands launched by Codex |
-| Native Mac startup | App launched and started its owned Ollama; its Messages doctor also failed read-only access | Local Assistant needs its own Full Disk Access grant and relaunch |
+| Native Mac startup, initial attempt | App launched and started its owned Ollama; its Messages doctor also failed read-only access | Local Assistant needed its own Full Disk Access grant and relaunch |
+| Native Mac startup after owner unlocked the Mac | Granted the installed app Full Disk Access, reopened it from Finder, and observed the host's Ready output with its bundled helper and owned loopback Ollama running | Native Messages database access and host startup now pass; the app remains running |
 | Native package before fix | Codesign rejected resource fork/Finder metadata | A real packaging failure, not a compiler failure |
 | Native package after fix | Built, installed, strict deep signature verification and `--check-payload` passed | Locally built/ad-hoc signed package is valid; not a notarized release |
 | Signing regression | Injected synthetic ResourceFork metadata reproduced the rejection; clearing only the staged bundle allowed signing and strict verification | Packaging cleanup fixes the observed failure mechanism |
@@ -53,7 +54,14 @@ These issues are not closed by the checks below.
 | Qwen production conversation loop, run 2 | Same correct read/answer, 10.7 seconds (10.76 wall) | Second local model run; not a broad quality or latency benchmark |
 | Native login API | Reversible `--check-login-startup` registered with status 1 (enabled), then restored status 0 (not registered) | Actual Service Management registration works on this Mac; startup remains off |
 | Native login status after probe | Not registered | No logout/login, reboot or phone-reply recovery test occurred |
-| Real iMessage replies visible on iPhone | Not verified; no functioning host or phone confirmation in this run | No send/delivery success is claimed |
+| Real iMessage replies visible on iPhone | Not verified; no physical phone observation supplied | The Mac round trip below does not establish phone visibility |
+| Real Messages round trip on the Mac, follow-up | Sent a fresh `/status` in the verified owner self-chat and observed the Assistant response marked Delivered in Messages | Real receive/dispatch/reply path passes on the Mac; physical iPhone visibility remains unverified |
+| Live natural-language source-access question | Local inference completed and a reply appeared in Messages, but the model returned the earlier generic read-selection failure without issuing a source read | Transport/inference pass; this answer is not evidence of current Notes permissions |
+| Installed helper synthetic conversation, follow-up | Actual bundled helper executed `searchIndex`, cited the correct Friday-at-5-PM result, and passed in 12.4 seconds | The installed package supports the native tool loop; the live source question still needs investigation |
+| Fresh native Notes read, explicit follow-up | Actual `notes` read returned one matching excerpt with no unreadable sampled items; availability-only answer appeared in Messages marked Delivered; host recorded 58.8 seconds through reply submission | Notes access and the real source/model/transport loop pass for this bounded query; speed and natural tool selection still need improvement |
+| Fresh native Mail/Reminders/Photos checks | Mail timed out during account access (`-1712`); Reminders and Photos reported authorization not requested; the failure summary appeared in Messages marked Delivered; host recorded 66.9 seconds through submission | These are current native-host results, separate from the earlier Codex CLI probes |
+| Native permission settings, follow-up | Full Disk Access on; Automation to Messages and Notes on; Calendar full access on; Contacts on | Visible grants verified; grants alone are not proof that every source read completes |
+| Apple Mail UI, follow-up | App responded and displayed a Login Failed indicator | Account repair may be needed; no credentials or account settings were changed |
 | Apple Mail fresh read | Timed out during account access, Apple Events `-1712` | Unavailable for this attempt; timeout is not proof of permission denial |
 | Notes fresh read | Read deadline exceeded; no permission denial reported | Unavailable for this attempt |
 | Reminders fresh read | Permission decision did not arrive within 60 seconds | Access not verified |
@@ -62,8 +70,9 @@ These issues are not closed by the checks below.
 | Contacts fresh indexing | `CNErrorDomain` code 100, access denied | Access denied for this execution context |
 | Phone companion, remote uploads, lock/reboot, 24-hour soak | Not exercised | Still require physical-device acceptance |
 
-Optional-source probes above ran from the CLI supervised by Codex, not from an authorized
-Terminal or native app session. macOS grants differ by responsible app and executable identity.
+The initial optional-source probes above ran from the CLI supervised by Codex. The explicit
+follow-up source checks ran through Messages into the now-authorized native host.
+macOS grants differ by responsible app and executable identity.
 Previously saved source-access/sync records were not counted as fresh successful reads.
 No p50/p95 receive-to-visible iPhone latency is reported: the inference samples do not measure delivery.
 
@@ -79,15 +88,16 @@ No p50/p95 receive-to-visible iPhone latency is reported: the inference samples 
   phone-pairing cancellation and actionable native Full Disk Access recovery.
 - Shell syntax and `git diff --check` passed.
 - No iPhone source changes were made and no physical/simulator phone build was run here.
+- PR #42 CI passed: both macOS test jobs and the phone build job.
 
 ## Required next device actions
 
-1. Grant the installed `~/Applications/LocalAssistant.app` Full Disk Access in System Settings,
-   quit and reopen it, and confirm the menu reaches Running. Source prompts must be approved
-   for that responsible app if those sources are wanted. Permission grants cannot be supplied
-   by the model or inferred from Terminal's grants.
+1. The installed app's Full Disk Access grant, relaunch and Ready state are now verified.
+   Optional source prompts still need separate checks for that responsible app. Its menu-only
+   panel could not be inspected through the available UI automation surface.
 2. Connect sources from the native app. Retry Mail/Notes after opening their apps and confirming
-   they respond. Compare a current Calendar question/follow-up and source answers against the
+   they respond (a fresh bounded Notes read now passes; Mail still times out and shows Login Failed).
+   Request Reminders/Photos access through native setup if wanted. Compare a current Calendar question/follow-up and source answers against the
    actual apps. Preserve missing-access and incomplete-coverage reporting.
 3. Send `/status` and a natural question from the physical iPhone. Record receive-to-visible
    timing and phone observation separately from a local Messages submission row. Test restart
