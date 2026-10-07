@@ -1,17 +1,60 @@
 import AppKit
+import Carbon
 import Foundation
 import ServiceManagement
 import SwiftUI
 
 @main
 enum LocalAssistantEntry {
-    @MainActor static func main() {
+    @MainActor static func main() async {
         if CommandLine.arguments.contains("--check-payload") {
             do {
                 try PayloadCheck.run()
                 print("Native app payload valid.")
             } catch {
                 try? FileHandle.standardError.write(contentsOf: Data("\(error)\n".utf8))
+                exit(1)
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--check-login-startup") {
+            let service = SMAppService.mainApp
+            let original = service.status
+            if original == .enabled || original == .requiresApproval {
+                print("Login registration already exists (status \(original.rawValue)); it was preserved. A physical login/reply test is still required.")
+                return
+            }
+            do {
+                try service.register()
+                let registered = service.status
+                // This probe must restore an initially disabled registration.
+                try await service.unregister()
+                let restored = service.status
+                guard registered == .enabled || registered == .requiresApproval,
+                      restored == .notRegistered else {
+                    throw HostFailure("Unexpected login registration states: registered \(registered.rawValue), restored \(restored.rawValue). Inspect Login Items before continuing.")
+                }
+                print("Login registration round trip passed (registered \(registered.rawValue), restored \(restored.rawValue)). Startup remains off; physical login and phone delivery are unverified.")
+            } catch {
+                if service.status == .enabled || service.status == .requiresApproval {
+                    do { try await service.unregister() }
+                    catch { print("Could not restore disabled login startup: \(error). Inspect Login Items.") }
+                }
+                try? FileHandle.standardError.write(contentsOf: Data("Login registration check failed: \(error)\n".utf8))
+                exit(1)
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--login-status") {
+            switch SMAppService.mainApp.status {
+            case .enabled: print("Login startup: enabled. Starts at the next login; a physical login test is still required.")
+            case .requiresApproval: print("Login startup: requires approval in System Settings > General > Login Items & Extensions.")
+            case .notRegistered: print("Login startup: not registered. Enable Start at login in the Local Assistant menu.")
+            case .notFound:
+                print("Login startup: Service Management could not find this login service. Open the installed app and check Start at login.")
+                exit(1)
+            @unknown default:
+                print("Login startup: unknown status.")
                 exit(1)
             }
             return
@@ -35,7 +78,33 @@ struct LocalAssistantApplication: App {
 
 @MainActor
 final class HostAppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) { HostController.shared.launch() }
+    private var controlWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        HostController.shared.launch()
+        let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?
+            .paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+        if !loginLaunch { showControls() }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showControls()
+        return false
+    }
+
+    private func showControls() {
+        if controlWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 650),
+                styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            window.title = "Local Assistant"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: HostPanel(host: HostController.shared))
+            window.center()
+            controlWindow = window
+        }
+        controlWindow?.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let host = HostController.shared

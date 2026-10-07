@@ -103,6 +103,9 @@ done
 worker="$runtime/Models/LocalAssistantModel.app"
 cp "$binary_dir/assistant-model-worker" "$worker/Contents/MacOS/assistant-model-worker"
 cp Configuration/ModelWorker-Info.plist "$worker/Contents/Info.plist"
+# Files copied from Finder or synced folders may carry signing-incompatible metadata.
+# Clear only the newly assembled package; installed helpers and source files stay untouched.
+run_logged xattr -cr "$app"
 run_logged codesign --force --sign - --entitlements Configuration/ModelWorker.entitlements "$worker"
 run_logged codesign --force --sign - --entitlements Apps/AssistantMac/Host.entitlements "$runtime/bin/assistantctl"
 run_logged codesign --force --sign - --entitlements Apps/AssistantMac/Host.entitlements "$runtime/bin/imsg"

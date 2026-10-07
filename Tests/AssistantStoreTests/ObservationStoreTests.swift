@@ -4,6 +4,36 @@ import Testing
 
 struct ObservationStoreTests {
     @Test
+    func datedTrustReadsPreserveCurrentHeadsBoundsAndOrdering() async throws {
+        let store = try ObservationStore()
+        func item(_ id: String, _ time: Double?, revision: Int64 = 1,
+                  trust: ObservationTrust = .ownerAuthored, deleted: Bool = false) -> Observation {
+            Observation(source: .messages, externalID: id, versionHash: "v\(revision)",
+                sourceRevision: revision, observedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                sourceTimestamp: time.map(Date.init(timeIntervalSince1970:)),
+                trust: trust, text: id, locator: "fixture:\(id)", tombstone: deleted)
+        }
+        let lower = item("lower", 100), upper = item("upper", 200)
+        let moved = item("moved", 500, revision: 2), undated = item("undated", nil)
+        for record in [lower, upper, undated, item("moved", 150), moved,
+                       item("deleted", 150), item("deleted", 150, revision: 2, deleted: true),
+                       item("external", 150, trust: .knownExternal)] {
+            try await store.record(record)
+        }
+        let from = Date(timeIntervalSince1970: 100), to = Date(timeIntervalSince1970: 200)
+        #expect(try await store.currentObservations(source: .messages, trust: .ownerAuthored,
+            from: from, to: to) == [lower, upper])
+        #expect(try await store.currentObservations(source: .messages, trust: .ownerAuthored,
+            from: from, newestFirst: true) == [moved, upper, lower])
+        #expect(try await store.currentObservations(source: .messages, trust: .ownerAuthored,
+            to: to) == [lower, upper])
+        #expect(try await store.currentObservations(source: .messages, trust: .ownerAuthored,
+            limit: 1) == [undated])
+        #expect(try await store.currentObservations(source: .messages, trust: .ownerAuthored,
+            limit: 1, newestFirst: true) == [moved])
+    }
+
+    @Test
     func recordsIdempotentlyAndPersists() async throws {
         let directory = temporaryDirectory()
         let fileURL = directory.appendingPathComponent("assistant.sqlite")

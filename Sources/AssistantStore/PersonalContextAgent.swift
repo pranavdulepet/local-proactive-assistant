@@ -31,18 +31,21 @@ public struct PersonalContextAgent: Sendable {
     private let availableTools: [ContextTool]
     private let initialCoverage: [String]
     private let readTimeout: Duration
+    private let timeZone: TimeZone
     private let clock: @Sendable () -> Date
 
     public init(provider: any LocalModelProvider, source: any ReadContextSource,
                 availableTools: [ContextTool], coverage: [String] = [],
                 readTimeout: Duration = .seconds(20),
-                clock: @escaping @Sendable () -> Date = { Date() }) {
+                clock: @escaping @Sendable () -> Date = { Date() },
+                timeZone: TimeZone = .autoupdatingCurrent) {
         self.provider = provider
         self.source = source
         self.availableTools = Array(Set(availableTools)).sorted { $0.rawValue < $1.rawValue }
         self.initialCoverage = coverage
         self.readTimeout = readTimeout
         self.clock = clock
+        self.timeZone = timeZone
     }
 
     public func reply(message: String, history: [ChatTurn],
@@ -179,10 +182,25 @@ public struct PersonalContextAgent: Sendable {
     /// Native model protocols retain actual assistant calls and tool results across steps.
     private func nativeReply(message: String, history: [ChatTurn], agentHistory: [AgentMessage],
                              previousRecords: [EvidenceRecord], nextRecordID: Int) async throws -> PersonalContextAnswer {
-        let now = ISO8601DateFormatter().string(from: clock())
+        let instant = clock()
+        let timestamp = ISO8601DateFormatter()
+        timestamp.timeZone = timeZone
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.calendar = calendar
+        day.timeZone = timeZone
+        day.dateFormat = "yyyy-MM-dd"
+        let today = day.string(from: instant)
+        let tomorrow = day.string(from: calendar.date(byAdding: .day, value: 1, to: instant)!)
+        let yesterday = day.string(from: calendar.date(byAdding: .day, value: -1, to: instant)!)
+        let now = timestamp.string(from: instant)
         let instructions = """
         You are the owner's personal assistant on their Mac, chatting through Messages.
-        Current host time: \(now). Host timezone: \(TimeZone.autoupdatingCurrent.identifier).
+        Current host time: \(now). Host timezone: \(timeZone.identifier).
+        Local calendar date (today): \(today). Tomorrow: \(tomorrow). Yesterday: \(yesterday).
+        Resolve relative dates from these local calendar dates, even when the UTC date differs.
         Speak naturally and directly; follow the conversation, including short follow-ups.
         Use read tools whenever an answer needs personal information. You may combine sources,
         resolve a contact, refine a search or read another page. You have six reads per turn.

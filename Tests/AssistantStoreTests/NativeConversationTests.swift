@@ -5,6 +5,24 @@ import Testing
 @testable import AssistantStore
 
 struct NativeConversationTests {
+    @Test(arguments: [
+        ("2026-10-07T01:55:00Z", "2026-10-06T21:55:00-04:00", "2026-10-06", "2026-10-07"),
+        ("2026-03-09T03:30:00Z", "2026-03-08T23:30:00-04:00", "2026-03-08", "2026-03-09")
+    ])
+    func nativeClockUsesLocalDayAcrossUTCMidnightAndDST(utc: String, local: String,
+                                                       today: String, tomorrow: String) async throws {
+        let instant = try #require(ISO8601DateFormatter().date(from: utc))
+        let model = NativeConversationFixture(steps: [AgentStep(text: "Ready.", calls: [])])
+        _ = try await PersonalContextAgent(provider: model, source: NativeContextFixture(),
+            availableTools: [.calendar], clock: { instant },
+            timeZone: try #require(TimeZone(identifier: "America/New_York")))
+            .reply(message: "What is on tomorrow?", history: [])
+        let request = try #require(await model.captured().first)
+        let system = try #require(request.messages.first { $0.role == .system })
+        #expect(system.content.contains("Current host time: \(local)."))
+        #expect(system.content.contains("Local calendar date (today): \(today). Tomorrow: \(tomorrow)."))
+    }
+
     @Test func dateLookupAndActualToolResultSurviveRestartForFollowUp() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

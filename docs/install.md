@@ -29,7 +29,9 @@ The starter walks through these steps:
 3. Choose a local model. The starter saves your choice and installs Ollama when selected.
    The first model download may be large; later starts reuse the weights.
 4. Allow your terminal Full Disk Access in System Settings. Quit and reopen the terminal
-   after changing that permission, then rerun the starter.
+   after changing that permission, then rerun the starter. If you launch the command from
+   another app such as Codex, that supervising app needs its own grant; Terminal's grant
+   does not cover it.
 5. Send the exact one-time `LOCAL-...` pairing code from your iPhone to your private
    one-to-one self-chat. Confirm the chat found on the Mac. Phone and email aliases are
    resolved by the host; you do not enter a numeric chat ID.
@@ -79,7 +81,8 @@ Applications folder. The app starts your saved local model and Messages listener
 you do not need to keep Terminal open or keep the repository folder after installation.
 Ollama and its downloaded weights remain installed separately on your Mac.
 
-Click the speech-bubble icon in the menu bar to:
+Manual launch and Finder reopen show a control window. The speech-bubble icon in the menu
+bar provides the same controls; login launches keep the controls in the menu bar. Use them to:
 
 - Start or stop the host, and see its observed readiness and selected model.
 - Pair the iPhone companion from **Stop → Pair iPhone**, scan and verify the QR, then **Start**.
@@ -98,13 +101,33 @@ The app keeps an open Mac awake while serving. Keep the Mac online; closing the 
 still interrupt replies. It restarts a host that exits unexpectedly after becoming ready,
 with three attempts, and stops with an actionable status if startup fails. Stop and Quit
 terminate the processes the app owns, including its separate local Ollama server. They
-leave other Ollama instances alone. Stop a Terminal host before launching this app.
+leave other Ollama instances alone. Stop a Terminal host before launching this app. An optional Contacts Me-card lookup is
+bounded at five seconds; if it stalls, startup retains the already verified self-chat route.
+Saved owner aliases skip this optional lookup. To preserve another of your own self-chat
+addresses across Contacts outages, use `assistantctl add-self-handle --address <your address>`
+and confirm it as your own; only matching direct iMessage chats become eligible.
+
+To inspect the actual login registration without starting another host:
+
+```bash
+"$HOME/Applications/LocalAssistant.app/Contents/MacOS/LocalAssistant" --login-status
+```
+
+For a reversible registration check, run the same executable with `--check-login-startup`.
+It preserves an existing enabled/pending registration, or registers and unregisters an
+initially disabled service. It does not start the host or change an enabled login preference.
+A restoration failure is reported explicitly; inspect Login Items in that case.
+
+An enabled registration still needs a physical logout/login test to verify host readiness
+and a reply on the phone. Registration status alone does not prove that round trip.
 
 This is a source-built, ad-hoc signed app. It is not a Developer ID signed, notarized
 download. The first model choice, model download, and Messages self-chat pairing still use
 the guided starter; the native app reuses that setup. The separate iPhone companion can be
 paired directly from the installed app without the repository or Terminal. Updates can require renewed
-macOS access grants. To update, quit the app, pull the repository changes, and run the same
+macOS access grants because ad-hoc signatures change with each build. If Full Disk Access
+still appears enabled but reads fail after an update, remove the old LocalAssistant entry,
+add the newly installed app, then quit and reopen it. To update, quit the app, pull the repository changes, and run the same
 installer. A failed signed package replacement restores the previous app and model worker.
 
 For packaging without changing your installed worker or launching the host:

@@ -1,9 +1,11 @@
 import AssistantCore
 import Foundation
+import LocalInference
 
 public struct HostRefreshReport: Sendable {
     public let messagesReady: Bool
     public let failures: [ObservationSource]
+    public let failureDetails: [ObservationSource: String]
 }
 
 /// Refreshes sources independently, so a Calendar/Contacts permission failure cannot stop chat commands.
@@ -29,6 +31,7 @@ public actor HostRefreshService {
 
     public func refresh(now: Date = Date()) async throws -> HostRefreshReport {
         var failures: [ObservationSource] = []
+        var failureDetails: [ObservationSource: String] = [:]
         var messagesReady = false
         do {
             _ = try await messages.run()
@@ -37,6 +40,7 @@ public actor HostRefreshService {
         } catch {
             try Task.checkCancellation()
             failures.append(.messages)
+            failureDetails[.messages] = EvidenceText.bounded(String(describing: error), bytes: 512)
             try await store.markSourceUnavailable(.messages)
         }
         try Task.checkCancellation()
@@ -50,6 +54,7 @@ public actor HostRefreshService {
             } catch {
                 try Task.checkCancellation()
                 failures.append(.calendar)
+                failureDetails[.calendar] = EvidenceText.bounded(String(describing: error), bytes: 512)
                 try await store.markSourceUnavailable(.calendar)
             }
             do {
@@ -57,9 +62,10 @@ public actor HostRefreshService {
             } catch {
                 try Task.checkCancellation()
                 failures.append(.contacts)
+                failureDetails[.contacts] = EvidenceText.bounded(String(describing: error), bytes: 512)
                 try await store.markSourceUnavailable(.contacts)
             }
         }
-        return HostRefreshReport(messagesReady: messagesReady, failures: failures)
+        return HostRefreshReport(messagesReady: messagesReady, failures: failures, failureDetails: failureDetails)
     }
 }

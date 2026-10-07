@@ -119,7 +119,8 @@ a model is ready. `/help` lists the other commands. Proactive reminders start pa
 CI builds the Mac modules, native app and iPhone app, and exercises source queries, protocol
 interoperability, durable follow-ups and recovery. Physical-device latency, Mail behavior,
 away-from-home context sync and an unattended 24-hour run still require recorded validation.
-Those results determine release readiness.
+Those results determine release readiness. See the [October 6 Mac device results](docs/device-results-2026-10-06.md)
+for measured local inference, packaging/login checks and the remaining permission/delivery blockers.
 
 ## Development
 

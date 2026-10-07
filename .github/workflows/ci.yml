@@ -31,6 +31,7 @@ jobs:
         run: |
           swift build --product assistantctl
           python3 Tests/CLITests/test_host_startup.py .build/debug/assistantctl
+          python3 Tests/CLITests/test_model_eval.py .build/debug/assistantctl
       - name: Install and probe sandboxed model worker
         if: ${{ !cancelled() && matrix.runner == 'macos-26' }}
         run: |
