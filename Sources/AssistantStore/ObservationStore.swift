@@ -307,18 +307,23 @@ public actor ObservationStore {
         newestFirst: Bool = false
     ) throws -> [Observation] {
         guard limit > 0 else { return [] }
+        // Drive from the dated source index, then verify the current head by its
+        // composite key. Nullable OR predicates can otherwise turn a recent read
+        // into a scan of every historical message before Calendar gets refreshed.
+        let dateFilters = (startDate == nil ? "" : "AND o.source_timestamp >= ?")
+            + (endDate == nil ? "" : " AND o.source_timestamp <= ?")
         let statement = try prepare(
             """
             SELECT o.id, o.source, o.external_id, o.version_hash, o.source_revision,
                    o.observed_at, o.source_timestamp, o.trust, o.text, o.locator,
                    o.tombstone
-            FROM observation_heads h
-            JOIN observations o ON o.id = h.observation_id
+            FROM observations o INDEXED BY observations_source_time
+            JOIN observation_heads h ON h.source = o.source
+                AND h.external_id = o.external_id AND h.observation_id = o.id
             WHERE o.source = ?
               AND o.trust = ?
               AND o.tombstone = 0
-              AND (? IS NULL OR o.source_timestamp >= ?)
-              AND (? IS NULL OR o.source_timestamp <= ?)
+              \(dateFilters)
             ORDER BY o.source_timestamp \(newestFirst ? "DESC" : "ASC"), o.external_id
             LIMIT ?
             """
@@ -326,11 +331,10 @@ public actor ObservationStore {
         defer { sqlite3_finalize(statement) }
         try bind(source.rawValue, at: 1, to: statement)
         try bind(trust.rawValue, at: 2, to: statement)
-        try bind(startDate?.timeIntervalSince1970, at: 3, to: statement)
-        try bind(startDate?.timeIntervalSince1970, at: 4, to: statement)
-        try bind(endDate?.timeIntervalSince1970, at: 5, to: statement)
-        try bind(endDate?.timeIntervalSince1970, at: 6, to: statement)
-        try bind(Int64(limit), at: 7, to: statement)
+        var index: Int32 = 3
+        if let startDate { try bind(startDate.timeIntervalSince1970, at: index, to: statement); index += 1 }
+        if let endDate { try bind(endDate.timeIntervalSince1970, at: index, to: statement); index += 1 }
+        try bind(Int64(limit), at: index, to: statement)
 
         var observations: [Observation] = []
         while true {
@@ -1484,6 +1488,9 @@ public actor ObservationStore {
 
     CREATE INDEX IF NOT EXISTS observations_source_time
     ON observations(source, source_timestamp);
+
+    CREATE INDEX IF NOT EXISTS observation_heads_observation_id
+    ON observation_heads(observation_id);
 
     CREATE INDEX IF NOT EXISTS observation_handles_handle
     ON observation_handles(handle);

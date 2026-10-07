@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import Foundation
 import ServiceManagement
 import SwiftUI
@@ -77,7 +78,33 @@ struct LocalAssistantApplication: App {
 
 @MainActor
 final class HostAppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) { HostController.shared.launch() }
+    private var controlWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        HostController.shared.launch()
+        let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?
+            .paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+        if !loginLaunch { showControls() }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showControls()
+        return false
+    }
+
+    private func showControls() {
+        if controlWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 650),
+                styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            window.title = "Local Assistant"
+            window.isReleasedWhenClosed = false
+            window.contentView = NSHostingView(rootView: HostPanel(host: HostController.shared))
+            window.center()
+            controlWindow = window
+        }
+        controlWindow?.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let host = HostController.shared

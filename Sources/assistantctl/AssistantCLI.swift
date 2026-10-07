@@ -470,7 +470,7 @@ struct AssistantCLI {
                             let report = try await refresh.refresh()
                             let failed = Set(report.failures)
                             for source in failed.subtracting(unavailableSources) {
-                                print("\(source.rawValue) refresh unavailable; check permission/access. Commands remain available.")
+                                print("\(source.rawValue) refresh unavailable: \(report.failureDetails[source] ?? "unknown read failure"). Commands remain available.")
                             }
                             // Calendar/Contacts are checked less often than Messages.
                             // Avoid repeating warnings during the same outage.

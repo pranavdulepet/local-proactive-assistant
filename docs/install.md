@@ -81,7 +81,8 @@ Applications folder. The app starts your saved local model and Messages listener
 you do not need to keep Terminal open or keep the repository folder after installation.
 Ollama and its downloaded weights remain installed separately on your Mac.
 
-Click the speech-bubble icon in the menu bar to:
+Manual launch and Finder reopen show a control window. The speech-bubble icon in the menu
+bar provides the same controls; login launches keep the controls in the menu bar. Use them to:
 
 - Start or stop the host, and see its observed readiness and selected model.
 - Pair the iPhone companion from **Stop → Pair iPhone**, scan and verify the QR, then **Start**.
@@ -120,7 +121,9 @@ This is a source-built, ad-hoc signed app. It is not a Developer ID signed, nota
 download. The first model choice, model download, and Messages self-chat pairing still use
 the guided starter; the native app reuses that setup. The separate iPhone companion can be
 paired directly from the installed app without the repository or Terminal. Updates can require renewed
-macOS access grants. To update, quit the app, pull the repository changes, and run the same
+macOS access grants because ad-hoc signatures change with each build. If Full Disk Access
+still appears enabled but reads fail after an update, remove the old LocalAssistant entry,
+add the newly installed app, then quit and reopen it. To update, quit the app, pull the repository changes, and run the same
 installer. A failed signed package replacement restores the previous app and model worker.
 
 For packaging without changing your installed worker or launching the host:

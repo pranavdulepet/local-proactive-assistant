@@ -37,7 +37,39 @@ These issues are not closed by the checks below.
 - Owned test server: Ollama 0.35.1, `127.0.0.1:11435`, cloud disabled. Only the process
   started for this test was stopped; the separate desktop Ollama server was left alone.
 
-## Observed results
+## Latest follow-up: native setup and refresh recovery
+
+The results in this section supersede the earlier source failures and disabled-login
+state in the chronological attempts below.
+
+- Added a normal native control window on manual launch/Finder reopen. The actual window
+  exposed Connect, source timestamps and Start at login; automatic login launches are intended
+  to remain in the menu bar. Physical login launch behavior is still unverified.
+- With the owner's approval, native Connect performed fresh bounded Mail, Notes, Reminders
+  and Photos reads successfully at 21:55 local time. All four reported Available after
+  the final installed build. This proves these bounded reads, not full-library coverage.
+- Calendar's apparent access failure was a refresh stall before its read: a sampled live
+  backend was scanning historical observations during commitment extraction. The dated
+  query's nullable predicates and unindexed head join produced a costly scan. The fixed
+  query uses date bounds and the composite head key; other head joins receive an additive
+  observation-ID index. A real read-only database query completed in 0.016 seconds.
+- After installing the fix and refreshing the same app's Full Disk Access grant, Calendar
+  indexed coverage and Contacts synced freshly at 21:55. Calendar still reports its bounded
+  indexed window, rather than complete coverage.
+- Two new `/status` replies appeared in the owner's real Messages self-chat as Delivered,
+  before and after a controlled backend crash. The second reported all four optional
+  sources connected, fresh Calendar/Contacts and zero waiting/failed replies.
+- Sent SIGKILL only to the verified native app's backend. Its supervisor started a replacement
+  in 4.2 seconds, returned to Running, and answered the subsequent real `/status`.
+  The separate desktop Ollama remained running. This is process recovery, not reboot recovery.
+- Start at login is enabled in the native UI and confirmed by the installed executable's
+  Service Management status after the final update. No reboot/logout was performed.
+- Nine legacy uncertain replies remain awaiting local confirmation; none were cleared or resent.
+- The owner's paired physical iPhone is available and has companion version 0.1/build 1
+  installed. Inventory does not verify its UI, companion pairing, inference or phone delivery.
+  The owner chose manual phone-screen verification after iPhone Mirroring access was rejected.
+
+## Earlier observed results
 
 | Check | Actual result | Meaning |
 | --- | --- | --- |
@@ -79,7 +111,8 @@ No p50/p95 receive-to-visible iPhone latency is reported: the inference samples 
 
 ## Automated validation on this Mac
 
-- 246 Swift tests across 52 suites passed on both the pulled baseline and the fixed code.
+- 246 Swift tests passed on the pulled baseline; all 247 tests across 52 suites pass with
+  the final fixes, including date bounds, current revisions, tombstones, trust and ordering.
 - 59 setup/script checks passed after isolating the missing-helper fixture from installed `imsg`.
 - All 10 package installer tests passed, including staged-metadata cleanup and rollback cases.
 - Built CLI host-startup/exclusivity regression passed, including lock release after exit.
@@ -91,20 +124,15 @@ No p50/p95 receive-to-visible iPhone latency is reported: the inference samples 
 - No iPhone source changes were made and no physical/simulator phone build was run here.
 - PR #42 CI passed: both macOS test jobs and the phone build job.
 
-## Required next device actions
+## Remaining acceptance
 
-1. The installed app's Full Disk Access grant, relaunch and Ready state are now verified.
-   Optional source prompts still need separate checks for that responsible app. Its menu-only
-   panel could not be inspected through the available UI automation surface.
-2. Connect sources from the native app. Retry Mail/Notes after opening their apps and confirming
-   they respond (a fresh bounded Notes read now passes; Mail still times out and shows Login Failed).
-   Request Reminders/Photos access through native setup if wanted. Compare a current Calendar question/follow-up and source answers against the
-   actual apps. Preserve missing-access and incomplete-coverage reporting.
-3. Send `/status` and a natural question from the physical iPhone. Record receive-to-visible
-   timing and phone observation separately from a local Messages submission row. Test restart
-   catchup and uncertain-send reconciliation without automatically resending uncertain replies.
-4. Enable Start at login deliberately, then verify logout/login or reboot recovery with a
-   physical phone round trip. Check lock/display-off behavior and a 24-hour unattended run.
-5. Validate physical iPhone offline inference, opted-in context freshness/revocation and
-   away-from-home reachability. Complete native first-run UI, signed/notarized distribution
+1. Observe `/status` and a natural question on the physical iPhone, recording receive-to-visible
+   latency separately from Mac submission/Delivered indicators. Phone-screen verification
+   remains manual at the owner's request.
+2. Perform a coordinated logout/login or reboot and verify native readiness plus a physical
+   phone reply. The enabled registration and controlled backend recovery do not prove this.
+3. Check lock/display-off behavior and a 24-hour unattended run, including catchup and
+   uncertain-send reconciliation without automatically resending uncertain replies.
+4. Validate physical iPhone offline inference, opt-in context freshness/revocation and
+   away-from-home reachability. Complete native first-run setup, signed/notarized distribution
    and clean-account installation acceptance before calling the product finished.
