@@ -103,6 +103,9 @@ with three attempts, and stops with an actionable status if startup fails. Stop 
 terminate the processes the app owns, including its separate local Ollama server. They
 leave other Ollama instances alone. Stop a Terminal host before launching this app. An optional Contacts Me-card lookup is
 bounded at five seconds; if it stalls, startup retains the already verified self-chat route.
+Saved owner aliases skip this optional lookup. To preserve another of your own self-chat
+addresses across Contacts outages, use `assistantctl add-self-handle --address <your address>`
+and confirm it as your own; only matching direct iMessage chats become eligible.
 
 To inspect the actual login registration without starting another host:
 

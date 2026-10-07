@@ -37,6 +37,45 @@ These issues are not closed by the checks below.
 - Owned test server: Ollama 0.35.1, `127.0.0.1:11435`, cloud disabled. Only the process
   started for this test was stopped; the separate desktop Ollama server was left alone.
 
+## Final observed state before the desktop locked again
+
+These results supersede earlier source successes where noted. The Mac subsequently locked;
+Computer Use could not unlock it, and a manual unlock was requested.
+
+- Installed code through `a93f021` reached Running with Start at login enabled. The owner
+  deferred reboot testing and chose manual physical-iPhone observation; neither is reported
+  as passed. The subsequent saved-alias shortcut is built and staged, but not installed
+  while the desktop is locked.
+- Saved both previously verified owner self-chat aliases privately. Restart then caught up
+  the two questions sent during the update interruption. Both received model answers marked
+  Delivered on the Mac; the nine legacy uncertain turns were preserved. Final saved queue:
+  no queued/generating/failed turns, nine legacy uncertain turns.
+- Both new Calendar answers queried October 7, the correct local “tomorrow,” using the
+  actual tool interval `[2026-10-07T00:00:00-04:00, 2026-10-08T00:00:00-04:00)`.
+  Returned evidence and event count matched the actual Calendar app's visible day. The
+  read used indexed coverage last refreshed at 21:55; it does not prove a fresh EventKit
+  refresh after the final update. No event titles or source excerpts are published.
+- Mail and Notes still passed fresh bounded reads after the final installed update.
+  Reminders and Photos subsequently timed out waiting for authorization, despite their
+  enabled UI switches. Refreshing those switches did not resolve the timeouts. With the
+  owner's approval, reset only this app's Reminders/Photos records and retried Connect;
+  the saved results still show authorization timeouts, not successful reads.
+- Contacts was switched off while refreshing its existing grant. Automatic review rejected
+  turning it back on without explicit scope approval; that approval remains pending.
+  Contacts is therefore off at this handoff. It was not restored through another mechanism.
+- Assistant-specific macOS authorization logs explicitly reported failure to match the
+  stored Contacts code requirement after the ad-hoc update. The bounded Me-card deadline
+  allowed serving to start, but the underlying system read could remain blocked. The final
+  startup shortcut avoids that lookup when verified aliases are already saved.
+- No Developer ID Application signing identity is available on this Mac. Development
+  identities exist, but none was selected or used. Stable signing/notarization remains
+  part of release acceptance, rather than weakening the app's signing requirements.
+- All 250 Swift tests and three CLI evaluation regressions pass with the final shortcut.
+  Its staged native package passes strict deep signature verification and `--check-payload`.
+  CI for `a93f021` passed both macOS jobs plus phone simulator/device builds and the simulator
+  smoke test ([run](https://github.com/pranavdulepet/local-proactive-assistant/actions/runs/37560207002)).
+  This does not establish physical phone behavior.
+
 ## Latest follow-up: native setup and refresh recovery
 
 The results in this section supersede the earlier source failures and disabled-login
@@ -47,7 +86,7 @@ state in the chronological attempts below.
   to remain in the menu bar. Physical login launch behavior is still unverified.
 - With the owner's approval, native Connect performed fresh bounded Mail, Notes, Reminders
   and Photos reads successfully at 21:55 local time. All four reported Available after
-  the final installed build. This proves these bounded reads, not full-library coverage.
+  the query-fix build at that time; later update results above supersede this. This proves these bounded reads, not full-library coverage.
 - Calendar's apparent access failure was a refresh stall before its read: a sampled live
   backend was scanning historical observations during commitment extraction. The dated
   query's nullable predicates and unindexed head join produced a costly scan. The fixed
@@ -132,17 +171,21 @@ No p50/p95 receive-to-visible iPhone latency is reported: the inference samples 
   phone-pairing cancellation and actionable native Full Disk Access recovery.
 - Shell syntax and `git diff --check` passed.
 - No iPhone source changes were made and no physical/simulator phone build was run here.
-- PR #42 CI passed: both macOS test jobs and the phone build job.
+- PR #42 CI for `a93f021` passed both macOS jobs and the phone job, including simulator smoke checks.
 
 ## Remaining acceptance
 
-1. Observe `/status` and a natural question on the physical iPhone, recording receive-to-visible
+1. Unlock the desktop, install the staged saved-alias shortcut, and complete app-specific
+   native source prompts. Restore Contacts only after explicit owner approval. Reminders
+   and Photos need fresh successful reads after their reset; Calendar needs a fresh EventKit
+   refresh after the final package update.
+2. Observe `/status` and a natural question on the physical iPhone, recording receive-to-visible
    latency separately from Mac submission/Delivered indicators. Phone-screen verification
    remains manual at the owner's request.
-2. Perform a coordinated logout/login or reboot and verify native readiness plus a physical
+3. Perform a coordinated logout/login or reboot and verify native readiness plus a physical
    phone reply. The enabled registration and controlled backend recovery do not prove this.
-3. Check lock/display-off behavior and a 24-hour unattended run, including catchup and
+4. Check lock/display-off behavior and a 24-hour unattended run, including catchup and
    uncertain-send reconciliation without automatically resending uncertain replies.
-4. Validate physical iPhone offline inference, opt-in context freshness/revocation and
+5. Validate physical iPhone offline inference, opt-in context freshness/revocation and
    away-from-home reachability. Complete native first-run setup, signed/notarized distribution
    and clean-account installation acceptance before calling the product finished.

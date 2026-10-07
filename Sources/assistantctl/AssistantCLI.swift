@@ -307,10 +307,14 @@ struct AssistantCLI {
                 [String].self, from: Data(contentsOf: stateURL("self-handles.json"))
             )) ?? []
             var ownerHandles = Set(savedHandles)
-            do {
-                ownerHandles.formUnion(try await ContactsStoreSource().selfHandles())
-            } catch {
-                if verbose { print("Contacts Me card unavailable; using verified self routes.") }
+            // Explicitly verified aliases survive optional Contacts outages and
+            // avoid starting a blocking system Me-card read on every restart.
+            if ownerHandles.isEmpty {
+                do {
+                    ownerHandles.formUnion(try await ContactsStoreSource().selfHandles())
+                } catch {
+                    if verbose { print("Contacts Me card unavailable; using verified self routes.") }
+                }
             }
             let selfChats = SelfChatRoutes.resolve(
                 primary: selectedChat, available: availableChats, ownerHandles: ownerHandles
