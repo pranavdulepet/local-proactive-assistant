@@ -4,6 +4,24 @@ import Testing
 @testable import ContactsAdapter
 
 struct ContactsStoreSourceTests {
+    @Test func stalledMeCardReadTimesOutWithoutWaitingForTheSystemCall() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        defer { gate.signal() }
+        do {
+            _ = try await SelfHandleRead.run(timeout: .milliseconds(20)) {
+                gate.wait()
+                return ["fixture@example.test"]
+            }
+            Issue.record("Stalled read unexpectedly completed")
+        } catch {
+            #expect(String(describing: error).contains("lookup exceeded"))
+        }
+    }
+
+    @Test func completedMeCardReadReturnsItsActualHandles() async throws {
+        #expect(try await SelfHandleRead.run { ["fixture@example.test"] } == ["fixture@example.test"])
+    }
+
     @Test
     func normalizesNamesAndHandlesDeterministically() {
         let contact = CNMutableContact()

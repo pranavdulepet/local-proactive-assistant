@@ -101,7 +101,8 @@ The app keeps an open Mac awake while serving. Keep the Mac online; closing the 
 still interrupt replies. It restarts a host that exits unexpectedly after becoming ready,
 with three attempts, and stops with an actionable status if startup fails. Stop and Quit
 terminate the processes the app owns, including its separate local Ollama server. They
-leave other Ollama instances alone. Stop a Terminal host before launching this app.
+leave other Ollama instances alone. Stop a Terminal host before launching this app. An optional Contacts Me-card lookup is
+bounded at five seconds; if it stalls, startup retains the already verified self-chat route.
 
 To inspect the actual login registration without starting another host:
 

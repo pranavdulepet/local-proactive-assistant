@@ -63,7 +63,17 @@ state in the chronological attempts below.
   in 4.2 seconds, returned to Running, and answered the subsequent real `/status`.
   The separate desktop Ollama remained running. This is process recovery, not reboot recovery.
 - Start at login is enabled in the native UI and confirmed by the installed executable's
-  Service Management status after the final update. No reboot/logout was performed.
+  Service Management status after the final update. No reboot/logout was performed; the owner explicitly deferred that test.
+- A live natural Calendar question successfully read a date range, but selected October 8
+  as “tomorrow” while the host's local day was October 6. The system prompt had supplied
+  a UTC timestamp beside the local timezone. The fix supplies a local-offset timestamp
+  plus explicit today/tomorrow/yesterday dates calculated with the Gregorian calendar.
+  Native-request regression checks cover UTC midnight and daylight-saving time.
+- A later ad-hoc update exposed a second startup stall: a sampled backend was waiting
+  inside `CNContactStore.unifiedMeContactWithKeys` authorization. The native host's
+  60-second readiness deadline fired. The optional Me-card read now has a five-second
+  deadline independent of the synchronous system call, preserving the verified primary
+  route on failure. Regression checks cover successful reads and a blocked system call.
 - Nine legacy uncertain replies remain awaiting local confirmation; none were cleared or resent.
 - The owner's paired physical iPhone is available and has companion version 0.1/build 1
   installed. Inventory does not verify its UI, companion pairing, inference or phone delivery.
@@ -111,7 +121,7 @@ No p50/p95 receive-to-visible iPhone latency is reported: the inference samples 
 
 ## Automated validation on this Mac
 
-- 246 Swift tests passed on the pulled baseline; all 247 tests across 52 suites pass with
+- 246 Swift tests passed on the pulled baseline; all 250 tests across 52 suites pass with
   the final fixes, including date bounds, current revisions, tombstones, trust and ordering.
 - 59 setup/script checks passed after isolating the missing-helper fixture from installed `imsg`.
 - All 10 package installer tests passed, including staged-metadata cleanup and rollback cases.

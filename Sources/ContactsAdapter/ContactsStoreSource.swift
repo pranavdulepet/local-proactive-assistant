@@ -38,20 +38,22 @@ public actor ContactsStoreSource: ContactSource {
     }
 
     /// Addresses explicitly listed on the user's Contacts Me card.
-    public func selfHandles() throws -> Set<String> {
-        #if os(macOS)
-        let keys = [CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
-        let me = try contactStore.unifiedMeContactWithKeys(toFetch: keys)
-        let phones = me.phoneNumbers.compactMap {
-            Self.normalizedPhoneNumber($0.value.stringValue)
+    public func selfHandles() async throws -> Set<String> {
+        try await SelfHandleRead.run {
+            #if os(macOS)
+            let keys = [CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
+            let me = try CNContactStore().unifiedMeContactWithKeys(toFetch: keys)
+            let phones = me.phoneNumbers.compactMap {
+                Self.normalizedPhoneNumber($0.value.stringValue)
+            }
+            let emails = me.emailAddresses.compactMap {
+                Self.normalizedEmailAddress($0.value as String)
+            }
+            return Set(phones + emails)
+            #else
+            return []
+            #endif
         }
-        let emails = me.emailAddresses.compactMap {
-            Self.normalizedEmailAddress($0.value as String)
-        }
-        return Set(phones + emails)
-        #else
-        return []
-        #endif
     }
 
     public func contacts() throws -> [ContactRecord] {
@@ -143,4 +145,59 @@ public actor ContactsStoreSource: ContactSource {
 
 private final class ContactCollector: @unchecked Sendable {
     var records: [ContactRecord] = []
+}
+
+/// Contacts may block inside system authorization even with a visible grant.
+/// A detached read deadline lets startup retain its already verified self-chat.
+enum SelfHandleRead {
+    static func run(timeout: Duration = .seconds(5),
+                    read: @escaping @Sendable () throws -> Set<String>) async throws -> Set<String> {
+        let completion = SelfHandleCompletion()
+        let deadline = Task {
+            do { try await Task.sleep(for: timeout) } catch { return }
+            completion.finish(.failure(SelfHandleTimeout()))
+        }
+        defer { deadline.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                completion.install(continuation)
+                DispatchQueue.global(qos: .utility).async {
+                    completion.finish(Result { try read() })
+                }
+            }
+        } onCancel: {
+            completion.finish(.failure(CancellationError()))
+        }
+    }
+}
+
+private struct SelfHandleTimeout: Error, CustomStringConvertible {
+    var description: String { "Contacts Me-card lookup exceeded 5 seconds; using verified self-chat routes." }
+}
+
+private final class SelfHandleCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Set<String>, Error>?
+    private var result: Result<Set<String>, Error>?
+
+    func install(_ continuation: CheckedContinuation<Set<String>, Error>) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    func finish(_ result: Result<Set<String>, Error>) {
+        lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
+    }
 }
