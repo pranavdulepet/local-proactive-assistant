@@ -21,6 +21,13 @@ The model must be installed locally; cloud-backed Ollama model metadata is rejec
 An existing offline `/v1` runtime can use native function tools too. Apple inference retains
 its guided, typed planning path in the sandboxed worker. The source readers are the same.
 
+Mac and phone replies share voice guidance in `AssistantReplyPrompt`: lead with the answer,
+use concrete plain text, keep short follow-ups short, and omit canned acknowledgments,
+process narration and repeated disclaimers. Short lists are allowed when several events or
+steps are easier to scan. Source gaps belong in the reply when they affect the answer;
+personal claims still need citations and actual host read results. See
+[`reply-style.md`](reply-style.md) for the synthetic evaluation cases and observed results.
+
 Messages reads resolve contact names before searching, apply direction/date/topic predicates
 before ordering and paging, and expose ambiguity rather than searching unrelated people.
 Calendar reads use interval overlap, including overnight and all-day events. Mail filters
