@@ -13,6 +13,17 @@ permissions:
   contents: read
 
 jobs:
+  source-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test source release boundaries
+        run: python3 -m unittest discover -s Tests/ScriptTests -p 'test_source_release.py'
+      - name: Package and verify source snapshot
+        run: |
+          python3 scripts/package-source-release.py v0.2.0-alpha.1 --ref HEAD --output "$RUNNER_TEMP/source-release"
+          cd "$RUNNER_TEMP/source-release"
+          sha256sum -c SHA256SUMS
   test:
     strategy:
       fail-fast: false

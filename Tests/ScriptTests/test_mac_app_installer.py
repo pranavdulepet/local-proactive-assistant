@@ -60,6 +60,9 @@ class MacAppInstallerTests(unittest.TestCase):
         for folder in ("scripts", "Apps/AssistantMac", "Configuration"):
             (self.repo / folder).mkdir(parents=True)
         shutil.copyfile(REPO / "scripts/install-mac-app.sh", self.repo / "scripts/install-mac-app.sh")
+        for filename in ("LICENSE", "ThirdPartyNotices.md"):
+            shutil.copyfile(REPO / filename, self.repo / filename)
+        shutil.copytree(REPO / "ThirdPartyLicenses", self.repo / "ThirdPartyLicenses")
         for filename in ("Info.plist", "Host.entitlements"):
             shutil.copyfile(REPO / "Apps/AssistantMac" / filename, self.repo / "Apps/AssistantMac" / filename)
         for filename in ("ModelWorker-Info.plist", "ModelWorker.entitlements"):
@@ -108,6 +111,9 @@ class MacAppInstallerTests(unittest.TestCase):
         runtime = self.app / "Contents/Resources/Runtime"
         self.assertTrue((runtime / "bin/assistantctl").is_file())
         self.assertTrue((runtime / "bin/imsg").is_file())
+        self.assertEqual((self.app / "Contents/Resources/ThirdPartyLicenses/imsg.txt").read_bytes(),
+                         (REPO / "ThirdPartyLicenses/imsg.txt").read_bytes())
+        self.assertTrue((self.app / "Contents/Resources/LICENSE").is_file())
         self.assertEqual((self.bin / "imsg").stat().st_mode & 0o777, 0o555)
         self.assertEqual((runtime / "bin/imsg").stat().st_mode & 0o777, 0o755)
         self.assertEqual((runtime / "bin/fixture.bundle/data.txt").read_text(), "runtime resource")

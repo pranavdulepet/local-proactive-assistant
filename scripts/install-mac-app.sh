@@ -93,6 +93,8 @@ run_logged xcrun swiftc -swift-version 6 -parse-as-library -O -sdk "$sdk" -targe
     Apps/AssistantMac/HostProfile.swift Apps/AssistantMac/HostController.swift Apps/AssistantMac/LocalAssistantApp.swift \
     -o "$app/Contents/MacOS/LocalAssistant"
 cp Apps/AssistantMac/Info.plist "$app/Contents/Info.plist"
+cp LICENSE ThirdPartyNotices.md "$app/Contents/Resources/"
+cp -R ThirdPartyLicenses "$app/Contents/Resources/"
 cp "$binary_dir/assistantctl" "$runtime/bin/assistantctl"
 cp "$imsg_binary" "$runtime/bin/imsg"
 # Homebrew can make its installed helper read-only. Re-sign only this private copy.

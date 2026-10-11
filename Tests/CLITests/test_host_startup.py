@@ -35,7 +35,9 @@ class HostStartupTests(unittest.TestCase):
             fixture.write_text(FIXTURE)
             fixture.chmod(0o700)
             entered, release = root / "entered", root / "release"
-            env = dict(os.environ, HOST_TEST_ENTERED=str(entered), HOST_TEST_RELEASE=str(release))
+            # Foundation resolves Application Support through Core Foundation, not shell HOME.
+            env = dict(os.environ, CFFIXED_USER_HOME=str(root),
+                       HOST_TEST_ENTERED=str(entered), HOST_TEST_RELEASE=str(release))
             command = [str(CLI), "serve", "--control-chat-id", "1", "--imsg", str(fixture)]
             first = subprocess.Popen(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
@@ -47,6 +49,9 @@ class HostStartupTests(unittest.TestCase):
                         first.terminate()
                     output, errors = first.communicate(timeout=5)
                     self.fail("The first host did not reach Messages setup: " + output + errors)
+
+                self.assertTrue((root / "Library/Application Support/LocalProactiveAssistant/host.lock").is_file(),
+                                "The fixture host must use its own temporary state directory.")
 
                 second = subprocess.run(command, env=env, text=True, capture_output=True, timeout=10)
                 self.assertEqual(second.returncode, 1, second.stdout + second.stderr)

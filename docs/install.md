@@ -1,4 +1,8 @@
-# Turn your number into a personal, local AI assistant
+# Install the developer alpha
+
+The current release is `v0.2.0-alpha.1`, a source release for developers and early testers.
+It requires developer tools and local permission setup. Read the
+[release limitations](releases/v0.2.0-alpha.1.md) before connecting personal sources.
 
 Your phone is the Messages interface. Your Mac is the main source and model engine. You can
 text the assistant from anywhere iMessage works while the Mac remains online and serving.
@@ -12,11 +16,12 @@ On a Mac signed into the same Messages account as your iPhone:
 ```bash
 git clone https://github.com/pranavdulepet/local-proactive-assistant.git
 cd local-proactive-assistant
+git checkout v0.2.0-alpha.1
 bash scripts/start.sh
 ```
 
 If you prefer downloading, extract the
-[repository ZIP](https://github.com/pranavdulepet/local-proactive-assistant/archive/refs/heads/main.zip)
+[versioned source download](https://github.com/pranavdulepet/local-proactive-assistant/releases/tag/v0.2.0-alpha.1)
 and open `scripts/Assistant.command`. If the launcher is blocked, open Terminal in the
 extracted folder and run `bash scripts/start.sh`.
 
@@ -127,8 +132,11 @@ the guided starter; the native app reuses that setup. The separate iPhone compan
 paired directly from the installed app without the repository or Terminal. Updates can require renewed
 macOS access grants because ad-hoc signatures change with each build. If Full Disk Access
 still appears enabled but reads fail after an update, remove the old LocalAssistant entry,
-add the newly installed app, then quit and reopen it. To update, quit the app, pull the repository changes, and run the same
-installer. A failed signed package replacement restores the previous app and model worker.
+add the newly installed app, then quit and reopen it. To update a tagged installation, quit
+the app, preserve any local source edits with a commit or stash, run `git fetch --tags`,
+check out the new release tag, and run the same installer. For source ZIP installations,
+extract the new version into a separate folder and run its installer. Saved application data
+is reused. A failed signed package replacement restores the previous app and model worker.
 
 For packaging without changing your installed worker or launching the host:
 

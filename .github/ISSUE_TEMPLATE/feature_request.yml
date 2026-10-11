@@ -1,0 +1,17 @@
+name: Feature request
+description: Describe a user problem and how success would be observed.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Describe the concrete situation using fictional examples.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior and acceptance
+      description: Include permission, source freshness and device constraints where relevant.
+    validations:
+      required: true

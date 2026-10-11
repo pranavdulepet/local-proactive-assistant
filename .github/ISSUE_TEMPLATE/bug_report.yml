@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible problem using sanitized or synthetic data.
+body:
+  - type: markdown
+    attributes:
+      value: "Do not post personal messages, source databases, pairing codes or raw logs. Report security issues privately using SECURITY.md."
+  - type: input
+    id: version
+    attributes:
+      label: Release or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS/iOS version, hardware class, model/runtime version, native app or Terminal, and relevant permission state. No device IDs or account addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and expected behavior
+      description: Use fictional people and synthetic source records.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include elapsed times and sanitized error categories. Specify what you observed on the Mac, simulator or physical phone.
+    validations:
+      required: true

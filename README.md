@@ -1,6 +1,11 @@
 # Local Assistant
 
-**Turn your number into a personal, local AI assistant.**
+**A local assistant on your Mac, reached through Messages.**
+
+**Developer alpha:** source installation is available under [Apache 2.0](LICENSE).
+Start with the [versioned release](https://github.com/pranavdulepet/local-proactive-assistant/releases/tag/v0.2.0-alpha.1)
+for a fixed source snapshot and checksums. A signed, notarized app download is still planned.
+See [release scope and known limitations](docs/releases/v0.2.0-alpha.1.md).
 
 Text your Messages self-chat from your iPhone. Your Mac runs the main model, reads connected
 personal sources, and answers in Messages. An optional iPhone companion contributes phone
@@ -14,13 +19,14 @@ On your Mac, signed into Messages:
 ```bash
 git clone https://github.com/pranavdulepet/local-proactive-assistant.git
 cd local-proactive-assistant
+git checkout v0.2.0-alpha.1
 bash scripts/start.sh
 ```
 
 The starter installs the Messages helper and Ollama when needed, offers local model choices,
 and pairs your self-chat with a one-time code. Allow the requested macOS source permissions.
 No numeric chat ID is needed. The first model download is reused on later starts.
-You can also [download the source ZIP](https://github.com/pranavdulepet/local-proactive-assistant/archive/refs/heads/main.zip)
+You can also [download the release source](https://github.com/pranavdulepet/local-proactive-assistant/releases/tag/v0.2.0-alpha.1)
 and open `scripts/Assistant.command`.
 
 After choosing a model and pairing, install the menu bar host:
@@ -45,7 +51,7 @@ iPhone builds require Xcode 26+. See [setup and first text](docs/install.md).
 Send `/status` from your phone to the paired self-chat, then try:
 
 - “What's on my calendar tomorrow?” followed by “What about the next day?”
-- “What did Asmitha Sathya say last?” using a real contact's full name.
+- “What did Maya Chen say last?” substituting a real contact's full name.
 - “Any important unread emails I should read?”
 - “Find my launch notes and compare them with tomorrow's meeting.”
 - “What unfinished reminders should I prioritize?”
@@ -119,7 +125,7 @@ a model is ready. `/help` lists the other commands. Proactive reminders start pa
 CI builds the Mac modules, native app and iPhone app, and exercises source queries, protocol
 interoperability, durable follow-ups and recovery. Physical-device latency, Mail behavior,
 away-from-home context sync and an unattended 24-hour run still require recorded validation.
-Those results determine release readiness. See the [October 6 Mac device results](docs/device-results-2026-10-06.md)
+Those results determine readiness for a stable app release. See the [October 6 Mac device results](docs/device-results-2026-10-06.md)
 for measured local inference, packaging/login checks and the remaining permission/delivery blockers.
 
 ## Development
@@ -132,3 +138,8 @@ bash scripts/test-mac-host.sh
 
 The native host and Apple app integrations require macOS. Architecture details are in
 [storage](docs/m1-storage.md) and [host policy](docs/m1-host.md).
+
+Contributions and reproducible bug reports are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md),
+[privacy and local data](PRIVACY.md), [security reporting](SECURITY.md), and the
+[roadmap](docs/roadmap.md). Runtime dependencies and model weights have
+[separate licenses](ThirdPartyNotices.md).
