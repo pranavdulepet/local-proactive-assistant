@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>org.localproactiveassistant.mac</string>
+    <key>CFBundleName</key><string>Local Assistant</string>
+    <key>CFBundleDisplayName</key><string>Local Assistant</string>
+    <key>CFBundleExecutable</key><string>LocalAssistant</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.2</string>
+    <key>CFBundleVersion</key><string>2</string>
+    <key>LSUIElement</key><true/>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>NSAppleEventsUsageDescription</key><string>Read locally synced Mail and Notes to answer your questions, and send assistant replies to your verified Messages self-chat.</string>
+    <key>NSContactsUsageDescription</key><string>Read contacts to resolve message and meeting participants locally on this Mac.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Read calendar events to answer questions and maintain your local personal index.</string>
+    <key>NSRemindersFullAccessUsageDescription</key><string>Read reminders to answer your questions locally. The assistant does not modify reminders.</string>
+    <key>NSDocumentsFolderUsageDescription</key><string>Search and read supported documents in folders you permit for your local assistant.</string>
+    <key>NSDesktopFolderUsageDescription</key><string>Search and read supported files in your permitted Desktop folder.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>Search and read supported files in your permitted Downloads folder.</string>
+    <key>NSPhotoLibraryUsageDescription</key><string>Read permitted photo and video metadata to answer your questions locally.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Receive encrypted context uploads from your paired iPhone over your local network.</string>
+    <key>NSBonjourServices</key><array><string>_lpa-sync._tcp</string></array>
+</dict></plist>

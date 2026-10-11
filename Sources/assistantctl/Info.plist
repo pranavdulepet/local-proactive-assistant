@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>org.localproactiveassistant.cli</string>
+    <key>CFBundleName</key>
+    <string>assistantctl</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Read your calendar to build the local assistant index on this Mac.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Read your contacts to resolve message and meeting participants on this Mac.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Read your reminders to answer personal questions locally. The assistant does not modify reminders.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Read your local Mail, Notes and Reminders for personal questions, and send assistant replies to your verified Messages chat.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Read photo dates, media type and coarse locations for your local assistant when you allow access.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Connect your paired iPhone to this Mac to receive the phone context you choose to share.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_lpa-sync._tcp</string>
+    </array>
+</dict>
+</plist>

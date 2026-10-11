@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Local Assistant</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Read your upcoming calendar events to answer questions on this iPhone using its on-device model.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Read a contact you ask about to answer questions on this iPhone using its on-device model.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Read sleep, steps, active energy and exercise minutes for your local assistant. Share only summaries with your paired Mac when enabled. Raw Health samples stay on this phone.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Read one recent location while this app is open, rounded to about 1 km for your local assistant and paired Mac when you enable sharing.</string>
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Local Assistant Pairing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>localassistant</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your paired Mac to share derived phone context for your Messages assistant.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lpa-sync._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

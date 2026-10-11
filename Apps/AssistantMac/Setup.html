@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Assistant setup</title>
+<style>
+  body { font: 18px/1.6 system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; color: #202124; }
+  h1, h2 { line-height: 1.2; }
+  code { font-size: .9em; }
+  @media (prefers-color-scheme: dark) { body { background: #161719; color: #eee; } }
+</style>
+<h1>Local Assistant setup</h1>
+<p>Keep your Mac online and signed into the same Messages account as your iPhone.</p>
+<ol>
+  <li>In Terminal, open the downloaded source folder and run <code>bash scripts/start.sh</code>. Follow the prompts to choose a model and connect your self-chat.</li>
+  <li>Stop the Terminal assistant, then run <code>bash scripts/install-mac-app.sh</code> in the same folder.</li>
+  <li>In the menu bar app, choose <strong>Access settings</strong> and enable Full Disk Access for Local Assistant. Quit and reopen the app after changing access.</li>
+  <li>Choose <strong>Connect</strong> under Source access and approve the permissions you want to grant.</li>
+  <li>Start the assistant. Send <code>/status</code>, then ask “What's on my calendar tomorrow?”</li>
+</ol>
+<h2>Daily use</h2>
+<p>Send <code>/resume</code> to enable reminders or <code>/pause</code> to pause them. Turn on <strong>Start at login</strong> in the menu bar app to start it when you sign in.</p>
+<p>If a source is unavailable, check its permission in System Settings. Under Recent activity, use <strong>Open log folder</strong> to see startup errors.</p>
+</html>
